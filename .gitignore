@@ -1,0 +1,7 @@
+app/node_modules/
+app/dist/
+app/.env
+app/.env.local
+.env
+*.log
+import-private/

@@ -5,3 +5,7 @@ app/.env.local
 .env
 *.log
 import-private/
+*.docx
+
+ucsd-bylaws-ultra-2026.docx
+supabase/deploy-bundle.txt

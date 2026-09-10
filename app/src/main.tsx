@@ -16,7 +16,7 @@ function Root(){
  const [loading,setLoading]=useState(configured)
  const [error,setError]=useState('')
  const currentUser=useRef<string|null>(null)
- const refresh=useCallback(async(uid:string|null)=>{try{const result=await loadLive(uid);if(currentUser.current===uid){setData(result);setError('')}}catch(e){setData(blank);setError(e instanceof Error?e.message:'Unable to load workspace')}finally{setLoading(false)}},[])
+ const refresh=useCallback(async(uid:string|null)=>{try{const result=await loadLive(uid);if(currentUser.current===uid){setData(result);setError('')}}catch(e){if(currentUser.current===uid){setData(blank);setError(e instanceof Error?e.message:'Unable to load workspace')}}finally{if(currentUser.current===uid)setLoading(false)}},[])
  useEffect(()=>{if(!supabase)return;let alive=true
  const {data:subscription}=supabase.auth.onAuthStateChange((_event,session)=>{if(!alive)return;const uid=session?.user.id??null;currentUser.current=uid;setUserId(uid);setData(blank);setLoading(true);setTimeout(()=>void refresh(uid),0)})
  void supabase.auth.getSession().then(({data,error})=>{if(!alive)return;if(error){setError(error.message);setLoading(false);return}const uid=data.session?.user.id??null;currentUser.current=uid;setUserId(uid);void refresh(uid)})

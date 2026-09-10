@@ -6,7 +6,8 @@ export type Obligation = { id:string; initiativeId:string; assigneeId:string; ki
 export type Thread = { id:string;documentId:string;version:number;quote:string;resolved:boolean;messages:{authorId:string;body:string;at:string}[] }
 export type Request = { id:string;kind:'proposal'|'join';userId:string;initiativeId?:string;title:string;body:string;status:string;feedback?:string }
 export type Audit = { id:string;at:string;actor:string;action:string;detail:string }
-export type Data = { people:Person[]; initiatives:Initiative[]; documents:DocumentRecord[]; obligations:Obligation[]; threads:Thread[]; requests:Request[]; audit:Audit[] }
+export type Notification = { id:string;userId:string;kind:string;payload:any;createdAt:string;readAt?:string }
+export type Data = { people:Person[]; initiatives:Initiative[]; documents:DocumentRecord[]; obligations:Obligation[]; threads:Thread[]; requests:Request[]; audit:Audit[]; notifications?:Notification[] }
 export const uid=()=>crypto.randomUUID()
 export const seed:Data={
  people:[{id:'maya',name:'Maya Chen',email:'maya@example.test',status:'approved',roles:['research']},{id:'alex',name:'Alex Rivera',email:'alex@example.test',status:'approved',roles:[]},{id:'jordan',name:'Jordan Park',email:'jordan@example.test',status:'pending',roles:[]},{id:'sam',name:'Sam Patel',email:'sam@example.test',status:'approved',roles:['operations']}],

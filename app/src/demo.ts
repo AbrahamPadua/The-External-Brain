@@ -31,6 +31,8 @@ import type {
   Data, Person, Initiative, DocumentRecord, Thread, Request,
 } from './model'
 import { seed, uid } from './model'
+import type { LedgerEvent } from './domain'
+import { appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries } from './domain'
 
 const DATA_KEY = 'openlabs:demo:data:v2'
 const USER_KEY = 'openlabs:demo:user:v2'
@@ -38,13 +40,32 @@ const USER_KEY = 'openlabs:demo:user:v2'
 export const HP_START = 100
 export const HP_MISS = -10        // penalty for a missed obligation
 export const HP_COMPLETION = 4    // granted once when an obligation is completed
-const HP_MIN = 0
-const HP_MAX = 100
 
-const clampHp = (n: number) => Math.max(HP_MIN, Math.min(HP_MAX, Math.round(n)))
 const nowIso = () => new Date().toISOString()
 const plusDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString()
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
+
+const INITIATIVE_STATUSES = ['active', 'on_hold', 'completed', 'stopped', 'dead']
+
+// HP is a pure projection of a per-initiative ledger replayed through domain.ts,
+// which is what applies the 0..100 floor/cap and reverses a late penalty.
+type LedgerStore = Record<string, LedgerEvent[]>
+
+function ledgerStore(d: Data): LedgerStore {
+  const anyD = d as unknown as { ledgers?: LedgerStore }
+  if (!anyD.ledgers || typeof anyD.ledgers !== 'object') anyD.ledgers = {}
+  return anyD.ledgers
+}
+
+function ledgerOf(d: Data, initiativeId: string): LedgerEvent[] {
+  return ledgerStore(d)[initiativeId] ?? []
+}
+
+function commitLedger(d: Data, initiativeId: string, ledger: LedgerEvent[]): void {
+  ledgerStore(d)[initiativeId] = ledger
+  const ini = d.initiatives.find((i) => i.id === initiativeId)
+  if (ini) ini.hp = replayHp(ledger, HP_START).hp
+}
 
 const RM_TEMPLATE =
   '<h2>Progress</h2><p></p><h2>Obstacles &amp; support</h2><p></p><h2>Next steps</h2><p></p>'
@@ -63,34 +84,50 @@ export function sanitize(html: string): string {
     .slice(0, 20_000)
 }
 
-function encodeProposal(category: string, abstract: string): string {
-  return JSON.stringify({ category, abstract })
+function encodeProposal(category: string, abstract: string, plan: string): string {
+  return JSON.stringify({ category, abstract, plan })
 }
 
 /** Decode a proposal Request.body written by createProposal / the live adapter. */
-export function readProposal(body: string): { category: string; abstract: string } {
+export function readProposal(body: string): { category: string; abstract: string; plan: string } {
   try {
     const o = JSON.parse(body)
     if (o && typeof o.abstract === 'string') {
-      return { category: String(o.category || 'General'), abstract: o.abstract }
+      return {
+        category: String(o.category || 'General'),
+        abstract: o.abstract,
+        plan: String(o.plan || ''),
+      }
     }
   } catch {
     /* legacy / plain-text body */
   }
-  return { category: 'General', abstract: String(body ?? '') }
+  return { category: 'General', abstract: String(body ?? ''), plan: '' }
 }
 
 function normalize(d: Data): Data {
   const any = d as unknown as Record<string, unknown>
-  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'audit']) {
+  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'audit', 'notifications']) {
     if (!Array.isArray(any[k])) any[k] = []
   }
   d.people.forEach((p) => { if (!Array.isArray(p.roles)) p.roles = [] })
+  const store = ledgerStore(d)
   d.initiatives.forEach((i) => {
     if (!Array.isArray(i.tasks)) i.tasks = []
     if (typeof i.hp !== 'number') i.hp = HP_START
+    if (i.status === 'hold') i.status = 'on_hold'
+    else if (i.status === 'closed') i.status = 'stopped'
+    if (!Array.isArray(store[i.id])) store[i.id] = []
+    // Anchor a baseline so replayHp stays consistent with any pre-ledger HP.
+    if (store[i.id].length === 0 && i.hp !== HP_START) {
+      store[i.id] = [{ id: `baseline:${i.id}`, at: nowIso(), delta: i.hp - HP_START, reason: 'baseline' }]
+    }
   })
   d.documents.forEach((doc) => { if (!Array.isArray(doc.versions)) doc.versions = [] })
+  // Legacy proposals used status 'pending'; the current flow is draft | submitted.
+  d.requests.forEach((r) => {
+    if (r.kind === 'proposal' && r.status === 'pending') r.status = 'submitted'
+  })
   return d
 }
 
@@ -173,19 +210,42 @@ const handlers: Record<string, Handler> = {
     if (!isApproved(me)) deny('Your account must be approved before proposing an initiative.')
     const title = String(p.title ?? '').trim()
     const abstract = String(p.abstract ?? '').trim()
+    const plan = String(p.plan ?? '').trim()
     const category = String(p.category ?? '').trim() || 'General'
+    const status = p.status === 'draft' ? 'draft' : 'submitted'
     if (title.length < 3) deny('Give your initiative a title.')
-    if (abstract.length < 20) deny('Write a short abstract (at least 20 characters).')
+    if (status === 'submitted') {
+      if (abstract.length < 20) deny('Write a short abstract (at least 20 characters).')
+      if (plan.length < 20) deny('Describe how the team would execute this (at least 20 characters).')
+    }
+    if (p.id) {
+      const existing = need(
+        d.requests.find((r) => r.id === p.id && r.kind === 'proposal'),
+        'Proposal not found.',
+      )
+      if (existing.userId !== me.id) deny('You can only edit your own proposal.')
+      if (existing.status !== 'draft' && existing.status !== 'changes_requested') {
+        deny('This proposal is already with Research and can no longer be edited.')
+      }
+      existing.title = title
+      existing.body = encodeProposal(category, abstract, plan)
+      existing.status = status
+      if (status === 'submitted') existing.feedback = undefined
+      audit(d, me, status === 'draft' ? 'proposal.save' : 'proposal.submit',
+        `${status === 'draft' ? 'Saved draft of' : 'Submitted'} "${title}" (${category})`)
+      return
+    }
     const req: Request = {
       id: uid(),
       kind: 'proposal',
       userId: me.id,
       title,
-      body: encodeProposal(category, abstract),
-      status: 'pending',
+      body: encodeProposal(category, abstract, plan),
+      status,
     }
     d.requests.unshift(req)
-    audit(d, me, 'proposal.create', `Proposed "${title}" (${category})`)
+    audit(d, me, status === 'draft' ? 'proposal.save' : 'proposal.submit',
+      `${status === 'draft' ? 'Drafted' : 'Proposed'} "${title}" (${category})`)
   },
 
   decideProposal: ({ d, actor }, p) => {
@@ -195,12 +255,21 @@ const handlers: Record<string, Handler> = {
       d.requests.find((r) => r.id === p.requestId && r.kind === 'proposal'),
       'Proposal not found.',
     )
-    if (req.status !== 'pending') deny('That proposal has already been decided.')
-    const decision = p.decision === 'approved' ? 'approved' : 'rejected'
+    if (req.status !== 'submitted') deny('That proposal is not awaiting review.')
+    const decision =
+      p.decision === 'approved' ? 'approved'
+      : p.decision === 'changes_requested' ? 'changes_requested'
+      : 'rejected'
     const feedback = String(p.feedback ?? '').trim()
-    if (decision === 'rejected' && !feedback) deny('Add feedback so the proposer knows why.')
+    if ((decision === 'rejected' || decision === 'changes_requested') && !feedback) {
+      deny('Add feedback so the proposer knows why.')
+    }
     req.status = decision
     req.feedback = feedback || undefined
+    if (decision === 'changes_requested') {
+      audit(d, me, 'proposal.changes', `Requested changes on "${req.title}": ${feedback}`)
+      return
+    }
     if (decision === 'approved') {
       const { category, abstract } = readProposal(req.body)
       const initiative: Initiative = {
@@ -296,7 +365,7 @@ const handlers: Record<string, Handler> = {
     const kind = p.kind === 'review' ? 'review' : 'rm'
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
     if (kind === 'rm') {
-      if (!ini.members.includes(me.id) && !isAdmin(me)) {
+      if (!ini.members.includes(me.id)) {
         deny('Only the initiative team can draft a reporting memo.')
       }
     } else {
@@ -309,7 +378,7 @@ const handlers: Record<string, Handler> = {
         o.kind === 'review' && o.assigneeId === me.id && o.targetId === p.targetId &&
         o.status !== 'complete' && o.status !== 'waived',
       )
-      if (!assigned && !isAdmin(me)) deny('You have not been assigned this review.')
+      if (!assigned) deny('You have not been assigned this review.')
     }
     const open = d.documents.find((doc) =>
       doc.initiativeId === ini.id && doc.kind === kind && doc.status === 'draft' &&
@@ -341,7 +410,7 @@ const handlers: Record<string, Handler> = {
     if (doc.status !== 'draft') deny('This document is submitted and can no longer be edited.')
     const ini = d.initiatives.find((i) => i.id === doc.initiativeId)
     const canEdit =
-      doc.authorId === me.id || isAdmin(me) ||
+      doc.authorId === me.id ||
       (doc.kind === 'rm' && !!ini && ini.members.includes(me.id))
     if (!canEdit) deny('You do not have edit access to this draft.')
     doc.body = sanitize(String(p.body ?? ''))
@@ -356,39 +425,87 @@ const handlers: Record<string, Handler> = {
     if (doc.status !== 'draft') deny('This document has already been submitted.')
     const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
     if (doc.kind === 'rm') {
-      if (ini.leadId !== me.id && !isAdmin(me)) deny('The initiative lead submits the reporting memo.')
-    } else if (doc.authorId !== me.id && !isAdmin(me)) {
+      if (ini.leadId !== me.id) deny('The initiative lead submits the reporting memo.')
+    } else if (doc.authorId !== me.id) {
       deny('Only the assigned reviewer can submit this review.')
     }
+    // The Submit payload carries the live editor state so a pending autosave
+    // that never fired cannot drop the author's last edits.
+    if (typeof p.body === 'string') doc.body = sanitize(p.body)
+    const nextTitle = String(p.title ?? '').trim()
+    if (nextTitle) doc.title = nextTitle
+
+    const firstSubmission = doc.versions.length === 0
     const at = nowIso()
     doc.versions.push({ version: doc.version, body: doc.body, at })
     doc.status = 'submitted'
-    doc.submittedAt = at
+    doc.submittedAt = doc.submittedAt ?? at // keep the first submission timestamp
 
-    const assigneeId = doc.kind === 'rm' ? ini.leadId : doc.authorId
-    const obl = d.obligations.find((o) =>
-      o.kind === doc.kind && o.assigneeId === assigneeId &&
-      o.status !== 'complete' && o.status !== 'waived' &&
-      (doc.kind === 'rm' ? o.initiativeId === ini.id : o.targetId === doc.targetId),
-    )
     let hpNote = ''
-    if (obl) {
-      const wasMissed = obl.status === 'missed'
-      const lateNoPenalty = !wasMissed && Date.parse(obl.due) < Date.parse(at)
-      obl.status = 'complete'
-      const target = d.initiatives.find((i) => i.id === obl.initiativeId)
-      if (target) {
-        const before = target.hp
-        let delta = HP_COMPLETION
-        if (wasMissed) delta += -HP_MISS // reverse the earlier penalty
-        target.hp = clampHp(target.hp + delta)
-        hpNote = ` "${target.title}" HP ${before} -> ${target.hp}` +
-          ` (+${HP_COMPLETION} completion${wasMissed ? `, +${-HP_MISS} late-penalty reversed` : ''})`
+    if (!firstSubmission) {
+      hpNote = ` (revision v${doc.version}; no additional HP)`
+    } else {
+      const assigneeId = doc.kind === 'rm' ? ini.leadId : doc.authorId
+      const obl = d.obligations.find((o) =>
+        o.kind === doc.kind && o.assigneeId === assigneeId &&
+        o.status !== 'complete' && o.status !== 'waived' &&
+        (doc.kind === 'rm' ? o.initiativeId === ini.id : o.targetId === doc.targetId),
+      )
+      if (obl) {
+        const wasMissed = obl.status === 'missed'
+        const lateNoPenalty = !wasMissed && Date.parse(obl.due) < Date.parse(at)
+        obl.status = 'complete'
+        const target = d.initiatives.find((i) => i.id === obl.initiativeId)
+        if (target) {
+          const before = target.hp
+          const oldLedger = ledgerOf(d, target.id)
+          const ledger = reconcileReviewOutcome(
+            oldLedger,
+            { memberId: obl.assigneeId, cycleId: obl.id, completedAt: new Date(at) },
+            new Date(at),
+          )
+          
+          const anyD = d as unknown as { policy?: { penalty: number; reward: number } }
+          const reward = anyD.policy?.reward ?? 4
+          let appliedReward = 4
+          let reversedPenalty = 10
+          for (let i = oldLedger.length; i < ledger.length; i++) {
+            if (ledger[i].id.startsWith('review-completed:')) {
+              ledger[i].delta = reward
+              appliedReward = reward
+            }
+            if (ledger[i].reversalOf) {
+              // The reversal event negates whatever the original penalty was, we can just read its delta for the UI string
+              reversedPenalty = ledger[i].delta
+            }
+          }
+          commitLedger(d, target.id, ledger)
+          hpNote = ` "${target.title}" HP ${before} -> ${target.hp}` +
+            ` (+${appliedReward} completion${wasMissed ? `, ${reversedPenalty} late-penalty reversed` : ''})`
+        }
+        if (lateNoPenalty) hpNote += ' (submitted after the deadline)'
       }
-      if (lateNoPenalty) hpNote += ' (submitted after the deadline)'
     }
     audit(d, me, doc.kind === 'rm' ? 'rm.submit' : 'review.submit',
       `Submitted "${doc.title}" v${doc.version} for "${ini.title}" [${ini.id}].${hpNote}`)
+  },
+
+  reviseDocument: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
+    if (doc.status !== 'submitted') deny('Only a submitted document can be revised.')
+    const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
+    if (doc.kind === 'rm') {
+      if (ini.leadId !== me.id) deny('The initiative lead revises the reporting memo.')
+    } else if (doc.authorId !== me.id) {
+      deny('Only the assigned reviewer can revise this review.')
+    }
+    // Reopen for editing: the first submittedAt and every recorded version stay
+    // untouched; resubmitting appends the next version and never re-earns HP.
+    doc.status = 'draft'
+    doc.version += 1
+    audit(d, me, doc.kind === 'rm' ? 'rm.revise' : 'review.revise',
+      `Reopened "${doc.title}" for revision (now v${doc.version}) on "${ini.title}" [${ini.id}]`)
   },
 
   addThread: ({ d, actor }, p) => {
@@ -479,39 +596,36 @@ const handlers: Record<string, Handler> = {
     if (reviewedIni.members.includes(reviewer.id) || reviewedIni.leadId === reviewer.id) {
       deny('Manual reviews exclude the reviewer’s own initiative.')
     }
-    const due = typeof p.due === 'string' && p.due
-      ? new Date(p.due).toISOString()
-      : plusDays(5)
-    const hpIni =
-      d.initiatives.find((i) => i.leadId === reviewer.id) ??
-      d.initiatives.find((i) => i.members.includes(reviewer.id)) ??
-      reviewedIni
+    // Assignment attaches the memo to an existing open review obligation that the
+    // reviewer already carries - it never invents a new one or guesses an
+    // initiative to bill the HP to.
+    const open = d.obligations.filter((o) =>
+      o.kind === 'review' && o.assigneeId === reviewer.id &&
+      o.status !== 'complete' && o.status !== 'waived',
+    )
+    if (!open.length) deny('That reviewer has no open review obligation to assign.')
+    let obl
     if (p.obligationId) {
-      const obl = need(d.obligations.find((o) => o.id === p.obligationId), 'Obligation not found.')
-      obl.assigneeId = reviewer.id
-      obl.due = due
-      obl.status = 'pending'
-      obl.targetId = target.id
-      obl.initiativeId = hpIni.id
-      audit(d, me, 'review.reassign',
-        `Reassigned the review of "${target.title}" to ${reviewer.name}`)
+      obl = need(
+        open.find((o) => o.id === p.obligationId),
+        'That review obligation is not open for this reviewer.',
+      )
+    } else if (open.length > 1) {
+      deny('This reviewer holds several open review obligations - pick which one.')
     } else {
-      if (d.obligations.some((o) =>
-        o.kind === 'review' && o.targetId === target.id && o.assigneeId === reviewer.id &&
-        o.status !== 'complete' && o.status !== 'waived',
-      )) deny('That reviewer already holds this review.')
-      d.obligations.push({
-        id: uid(),
-        initiativeId: hpIni.id,
-        assigneeId: reviewer.id,
-        kind: 'review',
-        targetId: target.id,
-        due,
-        status: 'pending',
-      })
-      audit(d, me, 'review.assign',
-        `Assigned the review of "${target.title}" to ${reviewer.name}`)
+      obl = open[0]
     }
+    if (obl.targetId && obl.targetId !== target.id &&
+      d.documents.some((doc) => doc.id === obl.targetId)) {
+      deny('That obligation is already pointed at another memo - pick a different one.')
+    }
+    // Default the due date to the obligation's own deadline; only an explicit
+    // override changes it.
+    obl.due = typeof p.due === 'string' && p.due ? new Date(p.due).toISOString() : obl.due
+    obl.targetId = target.id
+    obl.status = 'pending'
+    audit(d, me, 'review.assign',
+      `Pointed ${reviewer.name}'s review obligation at "${target.title}" (due ${obl.due.slice(0, 10)})`)
   },
 
   setStatus: ({ d, actor }, p) => {
@@ -519,13 +633,13 @@ const handlers: Record<string, Handler> = {
     if (!isResearch(me)) deny('Only Research can change an initiative’s status.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
     const status = String(p.status ?? '').trim()
-    if (!status) deny('Pick a status.')
+    if (!INITIATIVE_STATUSES.includes(status)) deny('Pick a valid status.')
     const reason = String(p.reason ?? '').trim()
     if (!reason) deny('Add a reason for the change.')
     const prev = ini.status
     ini.status = status
     let waived = 0
-    if (status === 'hold' || status === 'closed') {
+    if (status !== 'active') {
       d.obligations.forEach((o) => {
         if (o.initiativeId === ini.id && o.status !== 'complete' && o.status !== 'waived') {
           o.status = 'waived'
@@ -540,14 +654,17 @@ const handlers: Record<string, Handler> = {
 
   adjustHp: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
-    if (!isResearch(me) && !isOperations(me)) deny('Only Research or Operations can adjust HP.')
+    if (!isResearch(me)) deny('Only Research can adjust HP.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
     const delta = Math.round(Number(p.delta))
     if (!Number.isFinite(delta) || delta === 0) deny('Enter a non-zero adjustment.')
     const reason = String(p.reason ?? '').trim()
     if (!reason) deny('A manual HP change needs a documented reason.')
     const before = ini.hp
-    ini.hp = clampHp(ini.hp + delta)
+    const ledger = appendLedgerEvent(ledgerOf(d, ini.id), {
+      id: `adjust:${uid()}`, at: nowIso(), delta, reason,
+    })
+    commitLedger(d, ini.id, ledger)
     audit(d, me, 'hp.adjust',
       `"${ini.title}" [${ini.id}] HP ${before} -> ${ini.hp} (${delta > 0 ? '+' : ''}${delta}; ${reason})`)
   },
@@ -568,6 +685,156 @@ const handlers: Record<string, Handler> = {
       `${grant ? 'Granted' : 'Revoked'} ${role} ${grant ? 'to' : 'from'} ${target.name}`)
   },
 
+  transferLead: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isApproved(me)) deny('Your account must be approved to transfer leadership.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isResearch(me)) {
+      deny('Only the initiative lead or a Research admin can transfer leadership.')
+    }
+    const target = need(d.people.find((x) => x.id === p.userId), 'Member not found.')
+    if (!isApproved(target)) deny('The new lead must be an approved member.')
+    if (!ini.members.includes(target.id)) deny('The new lead must be a current member of the team.')
+    if (ini.leadId === target.id) deny('They are already the lead.')
+    const oldLeadId = ini.leadId
+    ini.leadId = target.id
+    d.obligations.forEach((o) => {
+      if (o.initiativeId === ini.id && o.assigneeId === oldLeadId && (o.status === 'pending' || o.status === 'missed')) {
+        o.assigneeId = target.id
+      }
+    })
+    audit(d, me, 'initiative.transfer', `Transferred leadership of "${ini.title}" [${ini.id}] to ${target.name}`)
+  },
+
+  leaveInitiative: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const targetId = String(p.userId ?? me.id)
+    if (targetId !== me.id) deny('You can only remove yourself.')
+    if (!isApproved(me)) deny('Your account must be approved.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (!ini.members.includes(me.id)) deny('You are not on this team.')
+    if (ini.leadId === me.id) deny('The lead must transfer leadership before leaving.')
+    ini.members = ini.members.filter((m) => m !== me.id)
+    audit(d, me, 'initiative.leave', `Left "${ini.title}" [${ini.id}]`)
+  },
+
+  openCycle: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isResearch(me)) deny('Only Research can open a review cycle.')
+    const monday = String(p.monday ?? '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(monday)) deny('Provide a valid date string for monday.')
+    const date = new Date(monday + 'T12:00:00Z')
+    if (Number.isNaN(date.getTime()) || date.getUTCDay() !== 1 || date.toISOString().slice(0, 10) !== monday) {
+      deny('The date provided must be a valid Monday.')
+    }
+
+    const isBreak = !!p.isBreak
+    const anyD = d as unknown as { cycles?: Record<string, { isBreak: boolean }>, cycle?: { monday: string; isBreak: boolean } }
+    if (!anyD.cycles) anyD.cycles = {}
+    
+    if (monday in anyD.cycles) {
+      if (anyD.cycles[monday].isBreak !== isBreak) {
+        deny('This cycle was already opened with a different break status.')
+      }
+    } else {
+      anyD.cycles[monday] = { isBreak }
+    }
+    
+    anyD.cycle = { monday, isBreak }
+
+    if (!isBreak) {
+      const bounds = getReviewCycleBoundaries(date)
+      d.initiatives.filter(i => i.status === 'active').forEach(ini => {
+        const lead = d.people.find(x => x.id === ini.leadId)
+        if (!lead || lead.status !== 'approved') return
+
+        const rmId = `rm:${ini.id}:${bounds.cycleId}`
+        if (!d.obligations.some(o => o.id === rmId)) {
+          d.obligations.push({
+            id: rmId,
+            initiativeId: ini.id,
+            assigneeId: lead.id,
+            kind: 'rm',
+            due: bounds.losAngelesDeadline.toISOString(),
+            status: 'pending'
+          })
+        }
+
+        const reviewId = `rev:${ini.id}:${bounds.cycleId}`
+        if (!d.obligations.some(o => o.id === reviewId)) {
+          d.obligations.push({
+            id: reviewId,
+            initiativeId: ini.id,
+            assigneeId: lead.id,
+            kind: 'review',
+            due: bounds.reviewDeadline.toISOString(),
+            status: 'pending'
+          })
+        }
+      })
+    }
+
+    audit(d, me, 'cycle.open',
+      `Opened the ${isBreak ? 'break-week ' : ''}cycle for the week of ${monday}`)
+  },
+
+  evaluateDeadlines: ({ d, actor }) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isResearch(me)) deny('Only Research can evaluate deadlines.')
+    const now = new Date()
+    const anyD = d as unknown as { policy?: { penalty: number; reward: number } }
+    const penalty = anyD.policy?.penalty ?? 10
+
+    let missed = 0
+    d.obligations.forEach((o) => {
+      if (o.status !== 'pending') return
+      if (Date.parse(o.due) >= now.getTime()) return
+      if (o.kind === 'review' && !o.targetId) return // unassigned review: not penalised
+      const ini = d.initiatives.find(i => i.id === o.initiativeId)
+      if (!ini || ini.status !== 'active') return
+      
+      o.status = 'missed'
+      missed += 1
+      const oldLedger = ledgerOf(d, o.initiativeId)
+      const ledger = reconcileReviewOutcome(
+        oldLedger,
+        { memberId: o.assigneeId, cycleId: o.id },
+        now,
+      )
+      for (let i = oldLedger.length; i < ledger.length; i++) {
+        if (ledger[i].id.startsWith('review-missed:')) ledger[i].delta = -penalty
+      }
+      commitLedger(d, o.initiativeId, ledger)
+    })
+    audit(d, me, 'cycle.evaluate',
+      `Evaluated deadlines: ${missed} obligation(s) marked missed`)
+  },
+
+  setPolicy: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isResearch(me)) deny('Only Research can set cycle policy.')
+    const penalty = Number(p.penalty)
+    const reward = Number(p.reward)
+    if (!Number.isInteger(penalty) || !Number.isInteger(reward)) {
+      deny('Enter an integer penalty and reward.')
+    }
+    if (penalty < 0 || penalty > 100 || reward < 0 || reward > 100) {
+      deny('Penalty and reward must be integers between 0 and 100.')
+    }
+    const anyD = d as unknown as { policy?: { penalty: number; reward: number } }
+    anyD.policy = { penalty, reward }
+    audit(d, me, 'cycle.policy',
+      `Set cycle policy: missed penalty ${penalty}, completion reward ${reward}`)
+  },
+
+  readNotification: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isApproved(me)) deny('Your account must be approved to read notifications.')
+    const notif = need((d.notifications || []).find((n) => n.id === p.id), 'Notification not found.')
+    if (notif.userId !== me.id) deny('You can only mark your own notifications as read.')
+    if (!notif.readAt) notif.readAt = nowIso()
+  },
+
   switchDemoUser: ({ d, actor }, p) => {
     const id = p.userId === null || p.userId === undefined ? null : String(p.userId)
     if (id && !d.people.find((x) => x.id === id)) deny('No such demo user.')
@@ -586,6 +853,10 @@ export async function demoAction(
   const actor = userId ? d.people.find((p) => p.id === userId) ?? null : null
   const handler = handlers[action]
   if (!handler) deny(`Unknown action: ${action}`)
+  if (action !== 'switchDemoUser') {
+    const me = need(actor, 'Sign in first.')
+    if (!isApproved(me)) deny('Your account must be approved.')
+  }
   handler({ d, actor }, payload ?? {})
   return d
 }

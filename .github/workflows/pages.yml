@@ -2,7 +2,7 @@ name: Publish Open Labs
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, master]
 permissions:
   contents: read
   pages: write
@@ -20,6 +20,94 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+      # app/src/client.ts treats any non-empty URL + key pair as "configured" and
+      # otherwise falls back to the fictional demo data set. Refuse to publish unless
+      # both repository variables are present and shaped like browser-safe credentials.
+      # Values arrive as step env only, are never interpolated into the shell and are
+      # never echoed; failures describe the shape of a value, never the value itself.
+      - name: Verify Supabase deployment variables
+        shell: bash
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          node - <<'NODE'
+          const problems = []
+          const url = process.env.VITE_SUPABASE_URL ?? ''
+          const key = process.env.VITE_SUPABASE_ANON_KEY ?? ''
+          const where = 'Settings > Secrets and variables > Actions > Variables'
+          let host = ''
+          let format = ''
+
+          if (url.trim() === '') {
+            problems.push(`VITE_SUPABASE_URL is empty or unset. Add it as a repository variable (${where}).`)
+          } else if (url !== url.trim()) {
+            problems.push('VITE_SUPABASE_URL has leading or trailing whitespace; the build would embed it verbatim.')
+          } else {
+            let parsed = null
+            try { parsed = new URL(url) } catch { problems.push('VITE_SUPABASE_URL is not a valid absolute URL.') }
+            if (parsed) {
+              host = parsed.hostname
+              if (parsed.protocol !== 'https:') problems.push('VITE_SUPABASE_URL must use https.')
+              if (parsed.username !== '' || parsed.password !== '') {
+                problems.push('VITE_SUPABASE_URL must not embed credentials; rotate anything carried in its userinfo.')
+              }
+              if (!parsed.hostname.includes('.') || ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+                problems.push('VITE_SUPABASE_URL must be a public project host, not a local address.')
+              }
+              if ((parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search !== '' || parsed.hash !== '') {
+                problems.push('VITE_SUPABASE_URL must be the project base URL with no path, query or fragment (https://<project-ref>.supabase.co).')
+              }
+            }
+          }
+
+          if (key.trim() === '') {
+            problems.push(`VITE_SUPABASE_ANON_KEY is empty or unset. Add it as a repository variable (${where}).`)
+          } else if (key !== key.trim()) {
+            problems.push('VITE_SUPABASE_ANON_KEY has leading or trailing whitespace; the build would embed it verbatim.')
+          } else {
+            const lower = key.toLowerCase()
+            const parts = key.split('.')
+            if (lower.startsWith('sb_secret_')) {
+              problems.push('VITE_SUPABASE_ANON_KEY is a secret key (sb_secret_). Only a publishable key may reach the browser; rotate it, it has been exposed to this build.')
+            } else if (lower.startsWith('sb_publishable_')) {
+              if (key.length < 'sb_publishable_'.length + 12) problems.push('VITE_SUPABASE_ANON_KEY looks like a truncated publishable key.')
+              else format = 'publishable (sb_publishable_)'
+            } else if (parts.length === 3 && parts.every((p) => p.length > 0)) {
+              // Decoded claims are never echoed: a crafted claim could otherwise forge
+              // ::workflow commands in the log. Every message below is static.
+              let payload
+              try {
+                payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
+              } catch {
+                payload = undefined
+              }
+              if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+                problems.push('VITE_SUPABASE_ANON_KEY looks like a JWT but its payload is not a decodable JSON object.')
+              } else if (payload.role !== 'anon') {
+                problems.push('VITE_SUPABASE_ANON_KEY is a JWT whose role claim is not "anon". Only the anon key may reach the browser, never a service_role key; rotate it if it is privileged.')
+              } else if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) {
+                problems.push('VITE_SUPABASE_ANON_KEY is a legacy anon JWT that has expired.')
+              } else {
+                format = 'legacy anon JWT'
+              }
+            } else {
+              problems.push('VITE_SUPABASE_ANON_KEY is neither a publishable key (sb_publishable_...) nor a legacy anon JWT.')
+            }
+          }
+
+          // Acceptance requires a positively identified key format, so any branch that
+          // neither classified the key nor recorded a problem still fails closed.
+          if (problems.length === 0 && format === '') {
+            problems.push('VITE_SUPABASE_ANON_KEY could not be classified as a browser-safe key.')
+          }
+          if (problems.length > 0) {
+            for (const problem of problems) console.log(`::error::${problem}`)
+            console.log('::error::Refusing to publish: without a verified Supabase configuration this build would deploy the fictional demo data set as if it were the live workspace.')
+            process.exit(1)
+          }
+          console.log(`Supabase configuration accepted: https host ${host}, key format ${format}.`)
+          NODE
       - run: npm ci
         working-directory: app
       - run: npm run build

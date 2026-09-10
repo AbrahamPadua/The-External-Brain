@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   appendLedgerEvent, canApproveAccount, canViewInternalAccount,
   getReviewCycleBoundaries, reconcileReviewOutcome, replayHp, reverseLedgerEvent,
+  formatLosAngelesLocal, parseLosAngelesLocal,
   type Account, type LedgerEvent,
 } from './domain'
 
@@ -17,6 +18,17 @@ describe('review-cycle boundaries', () => {
     const cycle = getReviewCycleBoundaries(new Date('2026-03-30T12:00:00Z'))
     expect(cycle.losAngelesDeadline.toISOString()).toBe('2026-04-04T06:59:00.000Z')
     expect(cycle.reviewDeadline.toISOString()).toBe('2026-04-06T06:59:00.000Z')
+  })
+
+  it('formats and parses datetime-local correctly for PDT and PST', () => {
+    // PST (winter)
+    const pstDate = parseLosAngelesLocal('2026-01-10T15:30')
+    expect(pstDate.toISOString()).toBe('2026-01-10T23:30:00.000Z')
+    expect(formatLosAngelesLocal(pstDate)).toBe('2026-01-10T15:30')
+    // PDT (summer)
+    const pdtDate = parseLosAngelesLocal('2026-06-10T15:30')
+    expect(pdtDate.toISOString()).toBe('2026-06-10T22:30:00.000Z')
+    expect(formatLosAngelesLocal(pdtDate)).toBe('2026-06-10T15:30')
   })
 })
 

@@ -104,6 +104,21 @@ export function getReviewCycleBoundaries(reference: Date): ReviewCycleBoundaries
   }
 }
 
+export function formatLosAngelesLocal(date: Date): string {
+  if (Number.isNaN(date.getTime())) return ''
+  const p = partsIn(date, LA)
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}T${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`
+}
+
+export function parseLosAngelesLocal(localString: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(localString)
+  if (!match) throw new Error('Invalid local datetime string')
+  return zonedDateTime({
+    year: Number(match[1]), month: Number(match[2]), day: Number(match[3]),
+    hour: Number(match[4]), minute: Number(match[5]), second: 0,
+  }, LA)
+}
+
 export function appendLedgerEvent(ledger: ReadonlyArray<LedgerEvent>, event: LedgerEvent): LedgerEvent[] {
   if (ledger.some(({ id }) => id === event.id)) return [...ledger]
   if (!Number.isFinite(event.delta)) throw new RangeError('event delta must be finite')

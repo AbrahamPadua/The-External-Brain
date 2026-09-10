@@ -23,6 +23,12 @@
  *       Approved account asks to join a team. `body` is a short plain-text note.
  *   decideJoin       { requestId, decision:'approved'|'rejected', feedback? }
  *       Initiative lead or admin. Approval adds membership.
+ *   updateProfile    { name, major, interests }
+ *       The signed-in account edits its OWN signup details, and may do so while
+ *       still pending. `name` is required (2..80 chars); `major` (<=80) and
+ *       `interests` (<=280) are optional and may be cleared. Never carries a
+ *       target user: account status, roles and the sign-in email are not
+ *       editable here. Live back end: the update_my_profile RPC.
  *   decideAccount    { userId, status:'approved'|'rejected'|'suspended', reason? }
  *       Operations or Research, never your own account. `reason` required to
  *       reject/suspend. Approval unlocks internal read + comment (no project
@@ -75,14 +81,17 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import type { Data, DocumentRecord, Initiative, Obligation, Person, Thread, Notification } from './model'
+import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { readProposal, sanitize } from './demo'
 import { formatLosAngelesLocal, parseLosAngelesLocal } from './domain'
 import {
+  INTERESTS_MAX, MAJOR_MAX, NAME_MAX, normalizeProfileDetails, profileDetailsError,
+} from './model'
+import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
-  FlaskConical, HeartPulse, House, Inbox, LogIn, LogOut, MessageSquare,
-  Plus, Send, ShieldCheck, Sparkles, TriangleAlert, UserPlus, X,
+  FlaskConical, HeartPulse, House, IdCard, Inbox, LogIn, LogOut, MessageSquare,
+  Plus, Save, Send, ShieldCheck, Sparkles, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
 type AppProps = {
@@ -90,8 +99,10 @@ type AppProps = {
   userId: string | null
   onAction: (action: string, payload: any) => Promise<void>
   mode: 'demo' | 'live'
-  onSignIn: (email: string) => Promise<void>
+  onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
   onSignOut: () => Promise<void>
+  /** The signed-in account's own email, read from the session. Read-only here. */
+  authEmail?: string | null
 }
 
 type Route = { name: string; parts: string[] }
@@ -107,9 +118,10 @@ type Ctx = {
   mode: 'demo' | 'live'
   busy: boolean
   route: Route
+  authEmail: string | null
   personName: (id: string) => string
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
-  onSignIn: (email: string) => Promise<void>
+  onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
   onSignOut: () => Promise<void>
 }
 
@@ -168,6 +180,13 @@ function versionsOf(doc: DocumentRecord): { version: number; body: string; at: s
   if (doc.status !== 'draft') return [{ version: doc.version, body: doc.body, at: doc.submittedAt ?? '' }]
   return []
 }
+
+/**
+ * An account whose profile has no name yet - created before signup collected
+ * one, or signed in through the returning-member form - still has to render as
+ * something. The Profile page is where it gets fixed.
+ */
+const nameOf = (p: Person): string => p.name.trim() || 'Unnamed member'
 
 function initiativesFor(data: Data, userId: string | null): Initiative[] {
   if (!userId) return []
@@ -275,14 +294,13 @@ function Sidebar({ nav, route, mode }: {
 }
 
 function TopBar({ ctx }: { ctx: Ctx }) {
-  const [email, setEmail] = useState('')
-  const people = [...ctx.data.people].sort((a, b) => a.name.localeCompare(b.name))
+  const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
   return (
     <div className="ol-topbar">
       <div className="who">
         {ctx.me ? (
           <>
-            <strong>{ctx.me.name}</strong>
+            <a href="#/profile"><strong>{nameOf(ctx.me)}</strong></a>
             <Pill tone={statusTone(ctx.me.status)}>{ctx.me.status}</Pill>
             {ctx.me.roles.map((r) => <Pill key={r} tone="info">{r}</Pill>)}
           </>
@@ -302,7 +320,7 @@ function TopBar({ ctx }: { ctx: Ctx }) {
               <option value="">Signed-out visitor</option>
               {people.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} - {p.status}{p.roles.length ? ` (${p.roles.join(', ')})` : ''}
+                  {nameOf(p)} - {p.status}{p.roles.length ? ` (${p.roles.join(', ')})` : ''}
                 </option>
               ))}
             </select>
@@ -312,21 +330,9 @@ function TopBar({ ctx }: { ctx: Ctx }) {
             <LogOut size={15} /> Sign out
           </button>
         ) : (
-          <form
-            className="row"
-            onSubmit={async (e) => {
-              e.preventDefault()
-              if (!email.trim()) return
-              await ctx.onSignIn(email.trim())
-              setEmail('')
-            }}
-          >
-            <input
-              type="email" required placeholder="you@ucsd.edu" value={email}
-              onChange={(e) => setEmail(e.target.value)} disabled={ctx.busy}
-            />
-            <button className="btn sm" disabled={ctx.busy}><LogIn size={15} /> Sign in</button>
-          </form>
+          // Signing in and creating an account both live on the sign-in page,
+          // because a new account has to give a name first.
+          <a className="btn sm" href="#/signin"><LogIn size={15} /> Sign in</a>
         )}
       </div>
     </div>
@@ -335,8 +341,18 @@ function TopBar({ ctx }: { ctx: Ctx }) {
 
 // --- forms ------------------------------------------------------------
 
+/**
+ * Sign in, or create an account. Both use the same emailed magic link; a new
+ * account additionally gives a name (required) and, if they want, a major and a
+ * line about their research interests. Returning members send email only, so an
+ * account that already exists keeps the profile it has.
+ */
 function SignInPanel({ ctx }: { ctx: Ctx }) {
+  const [newAccount, setNewAccount] = useState(false)
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [major, setMajor] = useState('')
+  const [interests, setInterests] = useState('')
   if (ctx.mode === 'demo') {
     return (
       <div className="card">
@@ -349,29 +365,148 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
       </div>
     )
   }
+  const details = normalizeProfileDetails({ name, major, interests })
+  const problem = profileDetailsError(details)
   return (
     <div className="card">
-      <h3>Sign in</h3>
+      <h3>{newAccount ? 'Create your account' : 'Sign in'}</h3>
+      <div className="tabs">
+        <button
+          type="button" className={`tab ${newAccount ? '' : 'active'}`}
+          onClick={() => setNewAccount(false)}
+        >
+          I have an account
+        </button>
+        <button
+          type="button" className={`tab ${newAccount ? 'active' : ''}`}
+          onClick={() => setNewAccount(true)}
+        >
+          I am new here
+        </button>
+      </div>
       <form
         className="stack"
-        onSubmit={async (e) => {
+        onSubmit={async (e: FormEvent) => {
           e.preventDefault()
           if (!email.trim()) return
-          await ctx.onSignIn(email.trim())
+          if (newAccount && problem) return
+          await ctx.onSignIn(email.trim(), newAccount ? details : undefined)
         }}
       >
+        {newAccount ? (
+          <>
+            <Field label="Full name" hint={`How members and reviewers see you. Up to ${NAME_MAX} characters.`}>
+              <input
+                type="text" required maxLength={NAME_MAX} value={name} disabled={ctx.busy}
+                placeholder="Ada Lovelace" onChange={(e) => setName(e.target.value)}
+              />
+            </Field>
+            <Field label="Major (optional)">
+              <input
+                type="text" maxLength={MAJOR_MAX} value={major} disabled={ctx.busy}
+                placeholder="Cognitive Science" onChange={(e) => setMajor(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Research interests (optional)"
+              hint={`A sentence is plenty - up to ${INTERESTS_MAX} characters. You can change all of this later.`}
+            >
+              <textarea
+                maxLength={INTERESTS_MAX} value={interests} disabled={ctx.busy}
+                style={{ minHeight: 72 }} onChange={(e) => setInterests(e.target.value)}
+              />
+            </Field>
+          </>
+        ) : null}
         <Field label="University email">
           <input
             type="email" required placeholder="you@ucsd.edu" value={email}
             onChange={(e) => setEmail(e.target.value)} disabled={ctx.busy}
           />
         </Field>
-        <button className="btn" disabled={ctx.busy}><LogIn size={16} /> Send sign-in link</button>
+        <button className="btn" disabled={ctx.busy || (newAccount && !!problem)}>
+          <LogIn size={16} /> Send sign-in link
+        </button>
+        {newAccount && problem && name.length ? (
+          <span className="field-hint" role="alert">{problem}</span>
+        ) : null}
         <span className="field-hint">
-          New accounts stay pending until Operations or Research approve them.
+          {newAccount
+            ? 'New accounts stay pending until Operations or Research approve them. Your details are saved with your account and you can edit them from Profile at any time.'
+            : 'We email you a sign-in link. Your name, major and interests stay exactly as they are.'}
         </span>
       </form>
     </div>
+  )
+}
+
+/** Shown until an account has a name on its profile. */
+function ProfileNudge({ ctx }: { ctx: Ctx }) {
+  if (!ctx.me || ctx.me.name.trim()) return null
+  return (
+    <div className="card">
+      <h3>Finish your profile</h3>
+      <p className="muted">
+        Add your name so members and reviewers know who you are. A major and your
+        research interests are optional.
+      </p>
+      <a className="btn" href="#/profile"><IdCard size={16} /> Open your profile</a>
+    </div>
+  )
+}
+
+/**
+ * Self-service edit of the signup details. Available to a pending account as
+ * well as an approved one; it cannot touch the account status, the roles or the
+ * sign-in email, and it only ever writes the signed-in member's own row.
+ */
+function ProfileForm({ ctx, me }: { ctx: Ctx; me: Person }) {
+  const [name, setName] = useState(me.name)
+  const [major, setMajor] = useState(me.major ?? '')
+  const [interests, setInterests] = useState(me.interests ?? '')
+  const details = normalizeProfileDetails({ name, major, interests })
+  const problem = profileDetailsError(details)
+  const unchanged = details.name === me.name.trim() &&
+    details.major === (me.major ?? '').trim() &&
+    details.interests === (me.interests ?? '').trim()
+  return (
+    <form
+      className="card"
+      onSubmit={async (e: FormEvent) => {
+        e.preventDefault()
+        if (problem) return
+        await ctx.run('updateProfile', details, 'Profile saved.')
+      }}
+    >
+      <h3>Your details</h3>
+      <Field label="Full name" hint={`Required. Up to ${NAME_MAX} characters.`}>
+        <input
+          type="text" required maxLength={NAME_MAX} value={name} disabled={ctx.busy}
+          placeholder="Ada Lovelace" onChange={(e) => setName(e.target.value)}
+        />
+      </Field>
+      <Field label="Major (optional)" hint="Leave empty to remove it.">
+        <input
+          type="text" maxLength={MAJOR_MAX} value={major} disabled={ctx.busy}
+          placeholder="Cognitive Science" onChange={(e) => setMajor(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Research interests (optional)"
+        hint={`What you would like to work on - up to ${INTERESTS_MAX} characters.`}
+      >
+        <textarea
+          maxLength={INTERESTS_MAX} value={interests} disabled={ctx.busy}
+          style={{ minHeight: 88 }} onChange={(e) => setInterests(e.target.value)}
+        />
+      </Field>
+      <div className="btn-row">
+        <button className="btn" disabled={ctx.busy || !!problem || unchanged}>
+          <Save size={16} /> Save profile
+        </button>
+      </div>
+      {problem && name.length ? <p className="field-hint" role="alert">{problem}</p> : null}
+    </form>
   )
 }
 
@@ -641,7 +776,7 @@ function AssignReviewForm({ ctx, target }: { ctx: Ctx; target: DocumentRecord })
         <Field label="Reviewer">
           <select value={reviewerId} disabled={ctx.busy}
             onChange={(e) => { setReviewerId(e.target.value); setObligationId('') }}>
-            {eligible.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {eligible.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}
           </select>
         </Field>
         {mustPick ? (
@@ -984,6 +1119,75 @@ function NotFound() {
   )
 }
 
+function PageSignIn({ ctx }: { ctx: Ctx }) {
+  if (ctx.me) {
+    return (
+      <div className="card">
+        <h3>You are signed in</h3>
+        <p className="muted">Your name, major and research interests live on your profile.</p>
+        <a className="btn" href="#/profile"><IdCard size={16} /> Open your profile</a>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <div className="section">
+        <h1>Sign in to Open Labs</h1>
+        <p className="muted">
+          Decoded Brain at UC San Diego. Members sign in with an emailed link - there is
+          no password to remember.
+        </p>
+      </div>
+      <SignInPanel ctx={ctx} />
+    </div>
+  )
+}
+
+function PageProfile({ ctx }: { ctx: Ctx }) {
+  const me = ctx.me
+  if (!me) {
+    return (
+      <div className="card">
+        <h3>Sign in to see your profile</h3>
+        <p className="muted">Your name, major and research interests belong to your account.</p>
+        <a className="btn" href="#/signin"><LogIn size={16} /> Sign in</a>
+      </div>
+    )
+  }
+  const email = ctx.authEmail || me.email
+  return (
+    <div>
+      <div className="section">
+        <h1>Your profile</h1>
+        <p className="muted">This is how the rest of Decoded Brain sees you.</p>
+      </div>
+
+      <div className="card">
+        <div className="row">
+          <strong>{nameOf(me)}</strong>
+          <Pill tone={statusTone(me.status)}>{me.status}</Pill>
+          <RoleBadges person={me} />
+        </div>
+        <p className="field-hint" style={{ marginTop: 10 }}>
+          {email ? <>Signed in as <strong>{email}</strong>. </> : null}
+          Your email, your account status and any roles are not editable here - Operations
+          or Research decide those.
+        </p>
+        {me.status === 'pending' ? (
+          <p className="muted" style={{ marginTop: 8 }}>
+            Your account is still pending. Keep these details up to date while Operations
+            or Research review it - they are what your reviewer reads.
+          </p>
+        ) : null}
+      </div>
+
+      {/* Keyed on the account so the form never carries one member's draft edits
+          into another member's session on the same browser. */}
+      <ProfileForm key={me.id} ctx={ctx} me={me} />
+    </div>
+  )
+}
+
 function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   return (
     <a className="card" href={`#/initiative/${ini.id}/overview`} style={{ display: 'block' }}>
@@ -1142,6 +1346,9 @@ function PageHome({ ctx }: { ctx: Ctx }) {
           </p>
           <a className="btn" href="#/catalog"><FlaskConical size={16} /> Open the catalog</a>
         </div>
+        <div className="section" style={{ marginTop: 20 }}>
+          <ProfileNudge ctx={ctx} />
+        </div>
         {mineReq.length ? (
           <div className="section" style={{ marginTop: 20 }}>
             <h2>Your requests</h2>
@@ -1198,9 +1405,11 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   return (
     <div>
       <div className="section">
-        <h1>Welcome, {me.name.split(' ')[0]}</h1>
+        <h1>Welcome, {nameOf(me).split(' ')[0]}</h1>
         <p className="muted">Here is what is waiting on you this week.</p>
       </div>
+
+      <ProfileNudge ctx={ctx} />
 
       <div className="section">
         <h2><Inbox size={18} /> Your reporting memos</h2>
@@ -1357,15 +1566,22 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                 const isLeadAndMe = mid === ctx.userId && ini.leadId === mid
                 return (
                   <div className="between" key={mid}>
-                    <div className="row">
-                      <strong>{p.name}</strong>
-                      {ini.leadId === mid ? <Pill tone="good">lead</Pill> : null}
-                      {internal ? <RoleBadges person={p} /> : null}
+                    <div>
+                      <div className="row">
+                        <strong>{nameOf(p)}</strong>
+                        {ini.leadId === mid ? <Pill tone="good">lead</Pill> : null}
+                        {internal ? <RoleBadges person={p} /> : null}
+                      </div>
+                      {internal && (p.major || p.interests) ? (
+                        <div className="field-hint">
+                          {[p.major, p.interests].filter(Boolean).join(' - ')}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="row">
                       {canTransfer ? (
                         <button className="btn ghost sm" disabled={ctx.busy} onClick={async () => {
-                          if (window.confirm(`Transfer leadership to ${p.name}?`)) {
+                          if (window.confirm(`Transfer leadership to ${nameOf(p)}?`)) {
                             await ctx.run('transferLead', { initiativeId: ini.id, userId: mid }, 'Leadership transferred.')
                           }
                         }}>Make lead</button>
@@ -1607,7 +1823,7 @@ function PageRequests({ ctx }: { ctx: Ctx }) {
 }
 
 function PageAccounts({ ctx }: { ctx: Ctx }) {
-  const people = [...ctx.data.people].sort((a, b) => a.name.localeCompare(b.name))
+  const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
   const pending = people.filter((p) => p.status === 'pending')
   return (
     <div>
@@ -1618,7 +1834,11 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
         {pending.length ? pending.map((p) => (
           <div className="card" key={p.id}>
             <div className="between">
-              <div><strong>{p.name}</strong> <span className="muted">{p.email}</span></div>
+              <div>
+                <div><strong>{nameOf(p)}</strong> <span className="muted">{p.email}</span></div>
+                {p.major ? <div className="field-hint">Major: {p.major}</div> : null}
+                {p.interests ? <div className="field-hint">Interests: {p.interests}</div> : null}
+              </div>
               <Pill tone="warn">pending</Pill>
             </div>
             <div className="btn-row" style={{ marginTop: 8 }}>
@@ -1648,7 +1868,10 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
           <tbody>
             {people.map((p) => (
               <tr key={p.id}>
-                <td>{p.name}</td>
+                <td>
+                  {nameOf(p)}
+                  {p.major ? <div className="field-hint">{p.major}</div> : null}
+                </td>
                 <td className="muted">{p.email}</td>
                 <td><Pill tone={statusTone(p.status)}>{p.status}</Pill></td>
                 <td>
@@ -2002,7 +2225,7 @@ const GUARDED = new Set([
   'proposals', 'new-proposal', 'requests', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
-export default function App({ data, userId, onAction, mode, onSignIn, onSignOut }: AppProps) {
+export default function App({ data, userId, onAction, mode, onSignIn, onSignOut, authEmail }: AppProps) {
   const [route, setRoute] = useState<Route>(() => parseHash())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2048,9 +2271,14 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut 
 
   const ctx: Ctx = {
     data, me, userId, approved, isResearch, isOperations, isAdmin, mode, busy, route,
-    personName: (id) => data.people.find((p) => p.id === id)?.name ?? 'Unknown',
+    authEmail: authEmail ?? null,
+    personName: (id) => {
+      const p = data.people.find((x) => x.id === id)
+      return p ? nameOf(p) : 'Unknown'
+    },
     run,
-    onSignIn: (email) => guard(() => onSignIn(email), 'Check your email for a sign-in link.').then(() => undefined),
+    onSignIn: (email, details) =>
+      guard(() => onSignIn(email, details), 'Check your email for a sign-in link.').then(() => undefined),
     onSignOut: () => guard(() => onSignOut()).then(() => undefined),
   }
 
@@ -2059,6 +2287,10 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut 
   const nav: { to: string; label: string; icon: typeof House; show: boolean }[] = [
     { to: '#/', label: 'Home', icon: House, show: true },
     { to: '#/catalog', label: 'Catalog', icon: FlaskConical, show: true },
+    // Pending accounts get here too: profile details are how a reviewer knows
+    // who they are looking at.
+    { to: '#/profile', label: 'Profile', icon: IdCard, show: !!me },
+    { to: '#/signin', label: 'Sign in', icon: LogIn, show: !me && mode === 'live' },
     { to: '#/notifications', label: unreadCount ? `Inbox (${unreadCount})` : 'Inbox', icon: Bell, show: approved },
     { to: '#/proposals', label: 'Proposals', icon: Sparkles, show: approved },
     { to: '#/requests', label: 'Join requests', icon: UserPlus, show: approved && (isAdmin || leads) },
@@ -2075,6 +2307,8 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut 
     switch (route.name) {
       case '': return <PageHome ctx={ctx} />
       case 'catalog': return <PageCatalog ctx={ctx} />
+      case 'signin': return <PageSignIn ctx={ctx} />
+      case 'profile': return <PageProfile ctx={ctx} />
       case 'initiative': return <PageInitiative ctx={ctx} />
       case 'document': return <PageDocument ctx={ctx} />
       case 'new-proposal': return <NewProposalForm ctx={ctx} />
@@ -2089,7 +2323,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut 
     }
   }
 
-  const narrow = route.name === 'new-proposal'
+  const narrow = route.name === 'new-proposal' || route.name === 'signin' || route.name === 'profile'
 
   return (
     <div className="ol">

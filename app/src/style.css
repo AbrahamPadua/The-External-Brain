@@ -210,6 +210,13 @@ code {
   color: var(--muted);
   flex-wrap: wrap;
 }
+/* The signed-in name doubles as the link to the profile editor. */
+.ol-topbar .who a {
+  color: var(--ink);
+}
+.ol-topbar .who a:hover {
+  color: var(--teal-ink);
+}
 .ol-topbar .field {
   margin: 0;
 }

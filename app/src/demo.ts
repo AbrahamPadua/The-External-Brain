@@ -30,7 +30,7 @@
 import type {
   Data, Person, Initiative, DocumentRecord, Thread, Request,
 } from './model'
-import { seed, uid } from './model'
+import { seed, uid, normalizeProfileDetails, profileDetailsError } from './model'
 import type { LedgerEvent } from './domain'
 import { appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries } from './domain'
 
@@ -357,6 +357,26 @@ const handlers: Record<string, Handler> = {
     target.status = status
     audit(d, me, `account.${status}`,
       `${target.name}: ${prev} -> ${status}${reason ? ` (${reason})` : ''}`)
+  },
+
+  // Signup details, editable by their owner while the account is still pending.
+  // Mirrors update_my_profile: name / major / interests only, never the account
+  // status, the roles or the email, and never another member's row.
+  updateProfile: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (p.userId && String(p.userId) !== me.id) deny('You can only edit your own profile.')
+    const details = normalizeProfileDetails(p)
+    const problem = profileDetailsError(details)
+    if (problem) deny(problem)
+    const target = need(d.people.find((x) => x.id === me.id), 'Profile not found.')
+    const prev = target.name
+    target.name = details.name
+    target.major = details.major
+    target.interests = details.interests
+    audit(d, me, 'profile.update',
+      prev && prev !== details.name
+        ? `Updated their profile details (name: ${prev} -> ${details.name})`
+        : 'Updated their profile details')
   },
 
   createDraft: ({ d, actor }, p) => {
@@ -843,6 +863,8 @@ const handlers: Record<string, Handler> = {
   },
 }
 
+const OPEN_TO_UNAPPROVED = new Set(['switchDemoUser', 'updateProfile'])
+
 export async function demoAction(
   data: Data,
   userId: string | null,
@@ -853,7 +875,9 @@ export async function demoAction(
   const actor = userId ? d.people.find((p) => p.id === userId) ?? null : null
   const handler = handlers[action]
   if (!handler) deny(`Unknown action: ${action}`)
-  if (action !== 'switchDemoUser') {
+  // Editing your own signup details is the one thing a pending account may do;
+  // every other action keeps the mandatory approval gate.
+  if (!OPEN_TO_UNAPPROVED.has(action)) {
     const me = need(actor, 'Sign in first.')
     if (!isApproved(me)) deny('Your account must be approved.')
   }

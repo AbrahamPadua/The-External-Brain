@@ -1,6 +1,29 @@
 import { supabase } from './client'
-import type { Data, DocumentRecord } from './model'
+import type { Data, DocumentRecord, ProfileDetails } from './model'
+import { normalizeProfileDetails, profileDetailsError } from './model'
 const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
+const SIGNUP_KEY='openlabs:signup:pending:v1'
+/**
+ * Signup details normally travel in the magic-link metadata and are written by
+ * the handle_new_user trigger. They are also kept here until a profile row
+ * proves they arrived, so a link that is confirmed later - or an account that
+ * already existed before the details were entered - can still be completed by
+ * update_my_profile. The copy is removed the first time it is examined.
+ */
+export function rememberSignup(email:string,details:ProfileDetails){try{localStorage.setItem(SIGNUP_KEY,JSON.stringify({email:email.trim().toLowerCase(),...details}))}catch{/* storage disabled: rely on the auth metadata */}}
+function takePendingSignup():(ProfileDetails&{email:string})|null{try{const raw=localStorage.getItem(SIGNUP_KEY);localStorage.removeItem(SIGNUP_KEY);return raw?JSON.parse(raw) as ProfileDetails&{email:string}:null}catch{return null}}
+async function applyPendingSignup():Promise<boolean>{
+ const pending=takePendingSignup()
+ if(!pending)return false
+ const details=normalizeProfileDetails(pending)
+ if(profileDetailsError(details))return false
+ // Only ever completes the account those details were typed for.
+ const {data}=await supabase!.auth.getUser()
+ const email=data.user?.email?.toLowerCase()??''
+ if(pending.email&&email&&pending.email!==email)return false
+ await rpc('update_my_profile',{p_display_name:details.name,p_major:details.major,p_interests:details.interests})
+ return true
+}
 export async function rpc(name:string,args:Record<string,unknown>={}){
  if(!supabase)throw new Error('Supabase is not configured')
  const {data,error}=await supabase.rpc(name,args);if(error)throw new Error(error.message);return data
@@ -12,7 +35,12 @@ export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
  if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state}
  const profiles=await rows('profiles')
- state.people=profiles.map(p=>({id:p.id,name:p.display_name||'Member',email:'',status:p.account_status,roles:[]}))
+ const mine=profiles.find(p=>p.id===userId)
+ // A profile with no name yet: finish the signup once, then read the row back.
+ if(mine&&!String(mine.display_name??'').trim()&&await applyPendingSignup())return loadLive(userId)
+ // The raw display_name travels as-is, empty included: the UI shows its own
+ // placeholder for a profile that has not been filled in yet.
+ state.people=profiles.map(p=>({id:p.id,name:p.display_name??'',email:'',status:p.account_status,roles:[],major:p.major??'',interests:p.interests??''}))
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
  state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state
  }
@@ -39,6 +67,9 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  const content={html:p.body??doc?.body??'<p></p>',title:p.title??doc?.title??'Weekly update',blocks:[]}
  switch(action){
  case 'decideAccount':return rpc('decide_account',{p_user:p.userId??id,p_status:p.status,p_reason:p.reason||'Reviewed by administrator'})
+ // Self-only by construction: update_my_profile takes no target user and writes
+ // the auth.uid() row; account status, roles and the sign-in email are untouched.
+ case 'updateProfile':{const d=normalizeProfileDetails(p);const problem=profileDetailsError(d);if(problem)throw new Error(problem);return rpc('update_my_profile',{p_display_name:d.name,p_major:d.major,p_interests:d.interests})}
  case 'createProposal':return rpc('save_proposal',{p_title:p.title,p_summary:p.body??p.abstract??'',p_content:{html:p.plan??'',category:p.category},p_submit:p.status!=='draft',p_id:p.id??null})
  case 'decideProposal':return rpc('decide_proposal',{p_proposal:p.requestId??id,p_status:p.status??p.decision,p_reason:p.feedback??p.reason??''})
  case 'requestJoin':return rpc('request_join',{p_initiative:p.initiativeId??id,p_message:p.body??p.message??''})

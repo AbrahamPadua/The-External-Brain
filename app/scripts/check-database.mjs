@@ -168,6 +168,39 @@ await db.query(`select decide_account($1,'suspended','access test')`,[ids.member
 await actor(ids.member)
 assert.equal((await db.query('select * from documents')).rows.length,0)
 await rejected(`select add_comment($1,1,'block-1','Forbidden',null,null,'Progress')`,[did])
+// --- 202609110015 automatic weekly processing ---------------------------
+// The internal routine is owner-only, preserves manual breaks, and retries do
+// not create another cycle, obligation, or live penalty.
+await db.exec('reset role')
+await db.query(`select set_config('request.jwt.claim.sub','',false)`)
+await db.query(`select set_config('request.jwt.claim.role','',false)`)
+const scheduledAt='2026-11-02T09:05:00Z'
+const firstRun=(await db.query(`select run_weekly_processing($1) result`,[scheduledAt])).rows[0].result
+const cycleCount=await count(`select count(*)::int c from cycles where starts_on='2026-11-02'`)
+const obligationCount=await count(`select count(*)::int c from obligations o join cycles c on c.id=o.cycle_id where c.starts_on='2026-11-02'`)
+const secondRun=(await db.query(`select run_weekly_processing($1) result`,[scheduledAt])).rows[0].result
+assert.equal(firstRun.status,'ok')
+assert.equal(cycleCount,1)
+assert.ok(obligationCount>0)
+assert.equal(secondRun.cycle_created,false)
+assert.equal(secondRun.obligations_created,0)
+assert.equal(secondRun.penalties_created,0)
+assert.equal(new Date((await db.query(`select rm_due_at from cycles where starts_on='2026-11-02'`)).rows[0].rm_due_at).toISOString(),'2026-11-07T07:59:00.000Z')
+await db.query(`insert into cycles(starts_on,rm_due_at,review_due_at,is_break)
+ values('2026-11-09','2026-11-14T07:59:00Z','2026-11-16T07:59:00Z',true)`)
+const breakRun=(await db.query(`select run_weekly_processing('2026-11-09T09:05:00Z') result`)).rows[0].result
+assert.equal(breakRun.is_break,true)
+assert.equal(await count(`select count(*)::int c from obligations o join cycles c on c.id=o.cycle_id where c.starts_on='2026-11-09'`),0)
+await actor(ids.admin)
+const taskId=(await db.query(`select create_task($1,'Draft protocol','Initial details',$2,null,'planned') id`,[iid,ids.lead])).rows[0].id
+await db.query(`select update_task($1,'Final protocol','Reviewed details',$2,'2026-12-01T20:00:00Z','pending')`,[taskId,ids.lead])
+assert.equal((await db.query(`select status from tasks where id=$1`,[taskId])).rows[0].status,'pending')
+await actor(ids.lead)
+await rejected(`select update_task($1,'Not allowed','',null,null,'finished')`,[taskId])
+await db.query(`select update_task_status($1,'finished')`,[taskId])
+await actor(ids.admin)
+await rejected(`select run_weekly_processing()`)
 await db.close()
 console.log('PASS: approval gate, private drafts, submitted visibility, deadlines, idempotency, late HP, suspension,')
-console.log('      submit-time review conflict, lead transfer release + revision history, penalty recurrence, image read scoping.')
+console.log('      submit-time review conflict, lead transfer release + revision history, penalty recurrence, image read scoping,')
+console.log('      owner-only idempotent weekly processing, LA DST deadlines, and manual break preservation.')

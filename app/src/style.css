@@ -27,12 +27,43 @@
   --info: #2456c8;
   --info-bg: #e8eefb;
 
+  /* Anchored-comment highlight. Contrast is carried by the dotted underline on
+     mark.hl as well as the fill, so the mark is still findable without colour. */
+  --hl: #fde68a;
+  --hl-open: #fcd34d;
+
   --radius: 12px;
 
   color-scheme: light;
   font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--ink);
 }
+
+.theme-dark {
+  --ink: #e6edf3;
+  --muted: #9eacb8;
+  --line: #354552;
+  --line-2: #2a3945;
+  --bg: #15212b;
+  --bg-2: #0f1820;
+  --teal-ink: #68d5c8;
+  --teal-bg: #143d3b;
+  --good-bg: #143d3b;
+  --warn-bg: #45351d;
+  --bad-bg: #472723;
+  --info-bg: #24375d;
+  --card: #182630;
+  --border: #354552;
+  --hl: #5c4a12;
+  --hl-open: #7a6216;
+  color-scheme: dark;
+}
+
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea { background: #101b23; color: var(--ink); }
+.theme-dark .card,
+.theme-dark .ol-topbar { background: var(--card); }
 
 *,
 *::before,
@@ -746,3 +777,79 @@ textarea:focus {
 .task-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border,#e5e7eb)}
 .task-row:last-child{border-bottom:0}
 @media(max-width:640px){.task-row{align-items:stretch;flex-direction:column}.task-row select{width:100%}}
+
+/* role preview banner ---------------------------------------------- */
+/* Deliberately loud and always in flow, never a dismissible overlay: a reader
+   must never be in doubt about whether what they see is their own access. */
+.preview-banner{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between;
+  padding:10px 28px;background:var(--warn-bg);color:var(--ink);
+  border-bottom:2px solid var(--warn);font-size:.9rem;
+}
+
+/* task descriptions ------------------------------------------------ */
+/* A description is rich text now, so it renders through the read-only editor.
+   Strip that editor's frame so it still reads as a caption under the title. */
+.task-description .editor{border:0;padding:0;background:none}
+.task-description .editor .ProseMirror{padding:0;min-height:0;font-size:.86rem;color:var(--muted)}
+.task-description .editor .ProseMirror img{max-width:min(100%,320px);height:auto;border-radius:6px}
+
+/* version-anchored highlights -------------------------------------- */
+/* The wrapper is the positioning context, so a mark's offsetTop/offsetLeft place
+   the popover without measuring the viewport. */
+.annotated{position:relative}
+.annotated-content{
+  line-height:1.7;padding:14px;border:1px solid var(--line);
+  border-radius:10px;background:var(--bg);
+}
+/* The content is our own allowlisted clone of the stored body, so it needs the
+   same typographic treatment the read-only editor gives it. */
+.annotated-content > :first-child{margin-top:0}
+.annotated-content > :last-child{margin-bottom:0}
+.annotated-content h1,.annotated-content h2,.annotated-content h3{margin:1em 0 .4em}
+.annotated-content p{margin:0 0 .8em}
+.annotated-content ul,.annotated-content ol{margin:0 0 .8em;padding-left:1.3em}
+.annotated-content blockquote{
+  margin:0 0 .8em;padding-left:12px;border-left:3px solid var(--line);color:var(--muted);
+}
+.annotated-content img{max-width:100%;height:auto;border-radius:8px;margin:.4em 0}
+.annotated-content pre{
+  background:var(--bg-2);padding:10px;border-radius:8px;overflow:auto;white-space:pre-wrap;
+}
+mark.hl{
+  background:var(--hl,#fde68a);color:inherit;border-radius:3px;padding:0 1px;
+  cursor:pointer;text-decoration:underline dotted currentColor 1px;text-underline-offset:3px;
+}
+mark.hl:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+mark.hl.open{background:var(--hl-open,#fcd34d)}
+.hl-popover{
+  position:absolute;z-index:20;display:block;margin-top:6px;
+  width:min(320px,80vw);max-height:240px;overflow:auto;white-space:normal;
+  background:var(--card,#fff);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:10px;box-shadow:0 14px 38px rgba(0,0,0,.22);font-size:.86rem;
+}
+.hl-popover-thread{display:block}
+.hl-popover-thread + .hl-popover-thread{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-2)}
+.hl-popover-thread strong{display:block}
+.hl-popover-thread em{display:block;color:var(--muted);font-size:.8rem;margin-top:4px}
+@media(max-width:640px){
+  /* A popover anchored to a narrow inline mark would overflow; pin it to the
+     reading column instead so a tap always shows the whole comment. */
+  .hl-popover{position:fixed;left:12px !important;right:12px;bottom:12px;top:auto !important;width:auto;max-height:45vh;margin:0}
+}
+
+/* split drafting workspace ----------------------------------------- */
+.split{display:grid;gap:0;align-items:start}
+.split-pane{min-width:0;overflow:auto}
+.split-handle{
+  cursor:col-resize;background:var(--line);border:0;padding:0;width:6px;
+  border-radius:3px;align-self:stretch;margin:0 6px;
+}
+.split-handle:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.split-handle:hover{background:var(--teal)}
+@media(max-width:900px){
+  /* Below this width a side-by-side pane is narrower than a readable line, so
+     the panes stack and the handle is meaningless. */
+  .split{grid-template-columns:1fr !important}
+  .split-handle{display:none}
+}

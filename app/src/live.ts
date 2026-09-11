@@ -116,16 +116,19 @@ export async function loadLive(userId:string|null):Promise<Data>{
  const byId=new Map(emails.map(e=>[e.user_id,e.email??'']))
  state.people.forEach(p=>p.email=byId.get(p.id)??'')
  }
- const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:t.details??'',status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
- state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
- // Two passes: collect every object path referenced by any body or any stored
- // version, sign them all in one round trip, then render. Old versions keep
+ // One signing round trip for the whole page: every object path referenced by a
+ // document body, any stored version, or a task description. Old versions keep
  // their images because their own paths are signed here too.
  const shaped=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const draft=drafts.find(v=>v.document_id===d.id);const content=draft?.content??vs.at(-1)?.content??{};return {d,vs,draft,content,bodyHtml:html(content),versionHtml:vs.map(v=>html(v.content))}})
- const imageUrls=await signPaths(IMAGES_BUCKET,shaped.flatMap(s=>[...objectPathsIn(s.bodyHtml),...s.versionHtml.flatMap(objectPathsIn)]))
+ const imageUrls=await signPaths(IMAGES_BUCKET,[
+  ...shaped.flatMap(s=>[...objectPathsIn(s.bodyHtml),...s.versionHtml.flatMap(objectPathsIn)]),
+  ...tasks.flatMap(t=>objectPathsIn(String(t.details??''))),
+ ])
+ const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
+ state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
  state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(content,d.kind==='rm'?'Roast Me':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourcePeriod:typeof content?.source_period==='string'?content.source_period:undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?content.source_week:undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
- state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
+ state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,anchorStart:t.anchor_start??undefined,anchorEnd:t.anchor_end??undefined,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
  state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
  state.audit=audit.map(a=>({id:a.id,at:a.created_at,actor:a.actor_id,action:a.action,detail:JSON.stringify(a.detail)}));
  state.notifications=notifs.map(n=>({id:n.id,userId:n.user_id,kind:n.kind,payload:n.payload||{},createdAt:n.created_at,readAt:n.read_at}));
@@ -209,11 +212,21 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  }
  if(!obligation)throw new Error('No obligation for this document')
  return rpc('submit_obligation',{p_obligation:obligation.id,p_content:content,p_reviewed_document:obligation.targetId??null,p_reviewed_version:(obligation as any).targetVersion??null})}
- case 'addThread':return rpc('add_comment',{p_document:p.documentId,p_version:p.version??doc?.version,p_block_id:p.blockId??'document',p_body:p.body,p_quote:p.quote??'',p_thread:null,p_parent:null})
+ // An anchored thread carries the character range of the selected passage so the
+ // highlight can be drawn over that version's text. Without a range it is an
+ // ordinary quote-only thread and keeps the original RPC.
+ case 'addThread':{
+  if(Number.isInteger(p.anchorStart)&&Number.isInteger(p.anchorEnd)){
+   return rpc('add_anchored_comment',{p_document:p.documentId,p_version:p.version??doc?.version,p_quote:p.quote??'',p_anchor_start:p.anchorStart,p_anchor_end:p.anchorEnd,p_body:p.body})
+  }
+  return rpc('add_comment',{p_document:p.documentId,p_version:p.version??doc?.version,p_block_id:p.blockId??'document',p_body:p.body,p_quote:p.quote??'',p_thread:null,p_parent:null})}
  case 'replyThread':{const t=data.threads.find(t=>t.id===(p.threadId??id));if(!t)throw new Error('Thread not found');return rpc('add_comment',{p_document:t.documentId,p_version:t.version,p_block_id:'document',p_body:p.body,p_thread:t.id,p_parent:null,p_quote:null})}
  case 'resolveThread':return rpc('resolve_comment_thread',{p_thread:p.threadId??id,p_resolved:p.resolved??true})
  case 'setTaskStatus':return rpc('update_task_status',{p_task:p.taskId??id,p_status:p.status})
- case 'addTask':return rpc('create_task',{p_initiative:p.initiativeId,p_title:p.title,p_details:p.description??'',p_assignee:p.assigneeId??null,p_due_at:p.dueAt??null,p_status:p.status??'planned'})
+ // A description may hold inline images. Its durable form keeps data-object-path
+ // and drops the signed src, exactly as document content does.
+ case 'updateTask':return rpc('update_task',{p_task:p.taskId??id,p_title:p.title,p_details:stripSignedUrls(p.description??''),p_assignee:p.assigneeId??null,p_due_at:p.dueAt??null,p_status:p.status})
+ case 'addTask':return rpc('create_task',{p_initiative:p.initiativeId,p_title:p.title,p_details:stripSignedUrls(p.description??''),p_assignee:p.assigneeId??null,p_due_at:p.dueAt??null,p_status:p.status??'planned'})
  case 'deleteTask':return rpc('delete_task',{p_task:p.taskId??id})
  case 'assignReview':{const candidates=data.obligations.filter(o=>o.kind==='review'&&o.assigneeId===p.reviewerId&&['pending','missed'].includes(o.status));const oid=p.obligationId??(candidates.length===1?candidates[0].id:null);if(!oid)throw new Error('Select an accountable initiative obligation. Open the cycle first if no obligations exist.');return rpc('assign_review_target',{p_obligation:oid,p_target:p.targetId??p.documentId,p_due_at:p.due??null})}
  case 'setStatus':return rpc('set_initiative_status',{p_initiative:p.initiativeId??id,p_status:p.status,p_reason:p.reason||'Leadership decision'})
@@ -239,6 +252,7 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
      async()=>{const {data}=await supabase!.from('initiatives').select('cover_object_path').eq('id',p.initiativeId).maybeSingle();return data?.cover_object_path===path})
  }
  case 'setCoverColor': return rpc('set_initiative_cover_color',{p_initiative:p.initiativeId,p_color:p.color||null})
+ case 'setCoverPosition': return rpc('set_initiative_cover_position',{p_initiative:p.initiativeId,p_x:p.x,p_y:p.y})
  case 'clearCover': return rpc('clear_initiative_cover',{p_initiative:p.initiativeId})
  case 'uploadRmImage':{
    const f=p.file as File
@@ -253,6 +267,20 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
    p.result={path,url:data?.signedUrl||''}
    return
  }
+ // Task description images use the same bucket, validation, durable object path
+ // and rollback as Roast Me images; only the registering RPC differs, because the
+ // read audience is a task's audience rather than a document's.
+ case 'uploadTaskImage':{
+   const f=p.file as File
+   const path=await uploadImage(IMAGES_BUCKET,p.initiativeId,f)
+   await registerOrRollBack(IMAGES_BUCKET,path,
+     ()=>rpc('attach_task_image',{p_task:p.taskId,p_object_path:path,p_mime:f.type,p_bytes:f.size}),
+     async()=>{const {data}=await supabase!.from('task_attachments').select('id').eq('object_path',path).maybeSingle();return !!data})
+   const {data}=await supabase!.storage.from(IMAGES_BUCKET).createSignedUrl(path,SIGNED_URL_TTL)
+   p.result={path,url:data?.signedUrl||''}
+   return
+ }
+ case 'detachTaskImage':return rpc('detach_task_image',{p_attachment:p.attachmentId})
  default:throw new Error(`Unsupported action: ${action}`)
  }
 }

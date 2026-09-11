@@ -63,14 +63,27 @@
  *       rm: the initiative lead. review: the assigned reviewer. Reopens a submitted
  *       document as a draft at the next version, keeping the first submittedAt and
  *       every recorded version.
- *   addThread        { documentId, version, quote, body }
- *       Approved account. Anchored to a submitted version + a quoted passage.
+ *   addThread        { documentId, version, quote, body, anchorStart?, anchorEnd? }
+ *       Approved account, on a submitted version. With `anchorStart`/`anchorEnd`
+ *       it records the character range of the selected passage in THAT version's
+ *       plain text, so the highlight can be drawn over it; the range is verified
+ *       against the quote. Without them it is an ordinary quoted thread. Live
+ *       back end: add_anchored_comment or add_comment.
  *   replyThread      { threadId, body }
  *   resolveThread    { threadId, resolved? }        (toggles when `resolved` omitted)
  *   setTaskStatus    { initiativeId, taskId, status:'planned'|'pending'|'finished' }
  *       Initiative lead, assigned teammate, or admin.
+ *   updateTask       { initiativeId, taskId, title, description, dueAt?, assigneeId?, status }
+ *       Initiative lead or admin. `description` may be markup with inline image
+ *       references; the adapter strips the signed src before storing it.
  *   addTask          { initiativeId, title, description, dueAt?, assigneeId?, status }
- *   deleteTask       { initiativeId, taskId }        (lead / admin)
+ *   deleteTask       { initiativeId, taskId }        (lead / admin; removes its images)
+ *   uploadTaskImage  { taskId, initiativeId, file }  -> payload.result {path,url}
+ *       Lead or admin. Uploads to the private initiative-images bucket and
+ *       registers it with attach_task_image, rolling the object back if the
+ *       registration fails. The durable reference is `path`; `url` expires.
+ *   detachTaskImage  { taskId, attachmentId, objectPath }
+ *       Lead or admin. Refuses while the description still shows the image.
  *   assignReview     { targetId, reviewerId, obligationId?, due? }
  *       Research only. Points one of the reviewer's existing OPEN review
  *       obligations at the memo; `obligationId` is mandatory when the reviewer
@@ -99,7 +112,7 @@
  * must act (adjustHp / setStatus). Rich text is only ever rendered through the
  * read-only Tiptap Editor after sanitize(); no raw HTML is injected anywhere.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
@@ -109,12 +122,18 @@ import {
 } from './domain'
 import {
   IMAGE_MIME_TYPES, imageFileError,
-  INTERESTS_MAX, MAJOR_MAX, NAME_MAX, normalizeProfileDetails, profileDetailsError,
+  INTERESTS_MAX, MAJOR_MAX, NAME_MAX, TASK_DETAILS_MAX,
+  normalizeProfileDetails, profileDetailsError,
 } from './model'
+import {
+  anchorError, applyHighlights, mapRenderedText, renderFormatted, resolvableSpans,
+  selectionAnchor, textOfHtml,
+} from './highlight'
+import type { Anchor, TextMap } from './highlight'
 import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
-  Plus, Save, Send, ShieldCheck, Sparkles, Trash2, TriangleAlert, UserPlus, X,
+  Moon, Plus, Save, Send, ShieldCheck, Sparkles, Sun, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
 type AppProps = {
@@ -147,6 +166,7 @@ type Ctx = {
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
+  uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
 }
 
 // --- small helpers --------------------------------------------------------
@@ -199,14 +219,122 @@ function statusTone(s: string): string {
   }
 }
 
-function accountStatusLabel(p: Pick<Person, 'status' | 'roles'>): string {
-  if (p.status === 'approved') {
-    if (p.roles.includes('admin')) return 'Admin'
-    if (p.roles.includes('operations')) return 'Operations'
-    if (p.roles.includes('research')) return 'Research'
-    return 'Member'
+/**
+ * The account's review status, for the Accounts table's Status column only.
+ * Everywhere an account is *identified*, use accountRoleBadges instead - a
+ * status is not a role.
+ */
+function accountStatusLabel(p: Pick<Person, 'status'>): string {
+  return p.status === 'approved' ? 'Approved' : p.status
+}
+
+/** The one message a refused role-preview attempt reports, wherever it came from. */
+export const PREVIEW_REFUSAL = 'Role preview is read-only. Exit the preview to make changes.'
+
+export type MutationGateway = {
+  /** Wraps any promise in the busy/error/notice handling. Non-mutating callers too. */
+  guard: (fn: () => Promise<unknown>, okMsg?: string) => Promise<boolean>
+  run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
+  uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string; url: string }>
+  uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string; url: string }>
+}
+
+/**
+ * Every mutation entrypoint in the app, built once over a SINGLE guarded
+ * dispatch.
+ *
+ * This exists because the entrypoints drifted: `run` checked the role preview
+ * but the two image uploads called the host directly, so a previewing account
+ * could still upload bytes and register an attachment. Funnelling them through
+ * one `dispatch` means the refusal cannot be skipped by adding another caller,
+ * and a new entrypoint has to go out of its way to avoid it.
+ *
+ * `isPreviewing` is a function, not a captured boolean, so a callback created
+ * before the preview began - a queued autosave, a file-picker handler, an upload
+ * retry - is refused when it actually fires.
+ */
+export function createMutationGateway(opts: {
+  onAction: (action: string, payload: any) => Promise<void>
+  isPreviewing: () => boolean
+  setBusy: (busy: boolean) => void
+  setError: (message: string | null) => void
+  setNotice: (message: string | null) => void
+}): MutationGateway {
+  const { onAction, isPreviewing, setBusy, setError, setNotice } = opts
+
+  const dispatch = async (action: string, payload: any): Promise<void> => {
+    // Before the network, before any bytes leave the browser.
+    if (isPreviewing()) throw new Error(PREVIEW_REFUSAL)
+    return onAction(action, payload)
   }
-  return p.status
+
+  const guard = async (fn: () => Promise<unknown>, okMsg?: string): Promise<boolean> => {
+    setError(null)
+    setNotice(null)
+    setBusy(true)
+    try {
+      await fn()
+      if (okMsg) setNotice(okMsg)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const upload = async (action: string, payload: any) => {
+    const ok = await guard(() => dispatch(action, payload))
+    // A picker/upload callback may have started just before preview was entered.
+    // The host call cannot be un-sent, but its result must not cross the preview
+    // boundary and reach the editor (which would insert an image into read-only
+    // content). Read the live value again after the awaited dispatch.
+    if (isPreviewing()) throw new Error(PREVIEW_REFUSAL)
+    if (!ok || !payload.result) {
+      // Throwing is what stops the editor inserting an image for a refused upload.
+      throw new Error(isPreviewing() ? PREVIEW_REFUSAL : 'Upload failed')
+    }
+    return payload.result as { path: string; url: string }
+  }
+
+  return {
+    guard,
+    run: (action, payload, okMsg) => guard(() => dispatch(action, payload), okMsg),
+    uploadRmImage: (documentId, initiativeId, file) =>
+      upload('uploadRmImage', { documentId, initiativeId, file, result: null }),
+    uploadTaskImage: (taskId, initiativeId, file) =>
+      upload('uploadTaskImage', { taskId, initiativeId, file, result: null }),
+  }
+}
+
+const ROLE_ORDER = ['admin', 'research', 'operations']
+
+/**
+ * Distinct role names for display. A grant can appear more than once in the
+ * loaded rows (two live grants of the same role), which previously rendered a
+ * second identical badge and a duplicate React key.
+ */
+export function roleLabels(roles: readonly string[]): string[] {
+  const seen = new Set(roles.map((r) => String(r ?? '').trim().toLowerCase()).filter(Boolean))
+  const known = ROLE_ORDER.filter((r) => seen.has(r))
+  const rest = [...seen].filter((r) => !ROLE_ORDER.includes(r)).sort()
+  return [...known, ...rest]
+}
+
+/**
+ * What an account is CALLED, which is not the same as its status. An approved
+ * account holding no privileged grant is a Member; "Approved" is a status and
+ * was never a role, so it is not shown as one. An account that is not approved
+ * shows that status instead, because it has no standing to name.
+ */
+export function accountRoleBadges(
+  p: Pick<Person, 'status' | 'roles'>,
+): { label: string; tone: string }[] {
+  if (p.status !== 'approved') return [{ label: p.status, tone: statusTone(p.status) }]
+  const roles = roleLabels(p.roles)
+  if (!roles.length) return [{ label: 'Member', tone: 'good' }]
+  return roles.map((label) => ({ label, tone: 'info' }))
 }
 
 // --- Roast Me weeks -------------------------------------------------------
@@ -313,12 +441,43 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 function RoleBadges({ person }: { person: Person }) {
-  if (!person.roles.length) return null
+  const roles = roleLabels(person.roles)
+  if (!roles.length) return null
   return (
     <span className="badges">
-      {person.roles.map((r) => <Pill key={r} tone="info">{r}</Pill>)}
+      {roles.map((r) => <Pill key={r} tone="info">{r}</Pill>)}
     </span>
   )
+}
+
+export type DocumentSort = 'newest' | 'title' | 'kind' | 'status'
+export type TaskSort = 'due' | 'title' | 'status'
+
+const documentDateKey = (doc: DocumentRecord): string =>
+  doc.targetMonday ?? doc.submittedAt ?? ''
+
+/** Imported source order is chronological and must win over the import timestamp. */
+export function sortDocuments(documents: DocumentRecord[], sort: DocumentSort): DocumentRecord[] {
+  return [...documents].sort((a, b) => {
+    if (sort === 'title') return a.title.localeCompare(b.title)
+    if (sort === 'kind') return a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title)
+    if (sort === 'status') return a.status.localeCompare(b.status) || a.title.localeCompare(b.title)
+    if (a.historical !== b.historical) return a.historical ? 1 : -1
+    if (a.historical && b.historical) {
+      return (b.sourceOrder ?? Number.MIN_SAFE_INTEGER) - (a.sourceOrder ?? Number.MIN_SAFE_INTEGER)
+        || (a.kind === 'rm' ? 0 : 1) - (b.kind === 'rm' ? 0 : 1)
+    }
+    return documentDateKey(b).localeCompare(documentDateKey(a)) || a.title.localeCompare(b.title)
+  })
+}
+
+export function sortTasks(tasks: Initiative['tasks'], sort: TaskSort): Initiative['tasks'] {
+  return [...tasks].sort((a, b) => {
+    if (sort === 'title') return a.title.localeCompare(b.title)
+    if (sort === 'status') return a.status.localeCompare(b.status) || a.title.localeCompare(b.title)
+    return (a.dueAt ? 0 : 1) - (b.dueAt ? 0 : 1)
+      || (a.dueAt ?? '').localeCompare(b.dueAt ?? '') || a.title.localeCompare(b.title)
+  })
 }
 
 function Toasts({ error, notice, onClear }: {
@@ -381,7 +540,7 @@ function Sidebar({ nav, route, mode }: {
   )
 }
 
-function TopBar({ ctx }: { ctx: Ctx }) {
+function TopBar({ ctx, dark, onToggleDark }: { ctx: Ctx; dark:boolean; onToggleDark:()=>void }) {
   const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
   return (
     <div className="ol-topbar">
@@ -389,14 +548,21 @@ function TopBar({ ctx }: { ctx: Ctx }) {
         {ctx.me ? (
           <>
             <a href="#/profile"><strong>{nameOf(ctx.me)}</strong></a>
-            <Pill tone={statusTone(ctx.me.status)}>{accountStatusLabel(ctx.me)}</Pill>
-            {ctx.me.roles.map((r) => <Pill key={r} tone="info">{r}</Pill>)}
+            {/* One badge set: the account's role, deduplicated. Not a status
+                pill plus a role pill, which read as two conflicting answers. */}
+            {accountRoleBadges(ctx.me).map(({ label, tone }) => (
+              <Pill key={label} tone={tone}>{label}</Pill>
+            ))}
           </>
         ) : (
           <span>Signed-out visitor</span>
         )}
       </div>
       <div className="row">
+        <button type="button" className="btn ghost sm" aria-pressed={dark} onClick={onToggleDark}
+          title={dark?'Use light appearance':'Use dark appearance'}>
+          {dark?<Sun size={15}/>:<Moon size={15}/>} {dark?'Light':'Dark'}
+        </button>
         {ctx.mode === 'demo' ? (
           <Field label="">
             <select
@@ -408,7 +574,7 @@ function TopBar({ ctx }: { ctx: Ctx }) {
               <option value="">Signed-out visitor</option>
               {people.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {nameOf(p)} - {accountStatusLabel(p)}{p.roles.length ? ` (${p.roles.join(', ')})` : ''}
+                  {nameOf(p)} - {accountRoleBadges(p).map((b) => b.label).join(', ')}
                 </option>
               ))}
             </select>
@@ -725,6 +891,7 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const [expectedColor, setExpectedColor] = useState(ini.coverFallbackColor || '')
   const [color, setColor] = useState(ini.coverFallbackColor || '')
   const [dirty, setDirty] = useState(false)
+  const [position,setPosition]=useState({x:ini.coverPositionX??50,y:ini.coverPositionY??50})
 
   useEffect(() => {
     if ((ini.coverFallbackColor || '') !== expectedColor) {
@@ -781,6 +948,13 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
              if (ok) setOpen(false)
           }}>Set fallback color</button>
         </div>
+        {ini.coverObjectPath ? <div className="stack">
+          <Field label={`Horizontal position: ${position.x}%`}><input type="range" min="0" max="100" value={position.x} onChange={e=>setPosition({...position,x:Number(e.target.value)})}/></Field>
+          <Field label={`Vertical position: ${position.y}%`}><input type="range" min="0" max="100" value={position.y} onChange={e=>setPosition({...position,y:Number(e.target.value)})}/></Field>
+          <button type="button" className="btn sm" disabled={ctx.busy||position.x===(ini.coverPositionX??50)&&position.y===(ini.coverPositionY??50)} onClick={async()=>{
+            const ok=await ctx.run('setCoverPosition',{initiativeId:ini.id,...position},'Cover position saved.');if(ok)setOpen(false)
+          }}>Save position</button>
+        </div>:null}
         
         <div className="btn-row" style={{ marginTop: 8 }}>
           <button type="button" className="btn sm" disabled={ctx.busy || (!ini.coverObjectPath && !ini.coverFallbackColor)} onClick={async () => {
@@ -794,6 +968,36 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   )
 }
 
+export function Modal({ titleId, onRequestClose, children }: {
+  titleId:string; onRequestClose:()=>void; children:ReactNode
+}) {
+  const panel=useRef<HTMLDivElement>(null)
+  const closeRef=useRef(onRequestClose)
+  closeRef.current=onRequestClose
+  useEffect(()=>{
+    const previous=document.activeElement as HTMLElement|null
+    const focusable=()=>Array.from(panel.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]')??[])
+    ;(panel.current?.querySelector<HTMLElement>('[autofocus]')??focusable()[0])?.focus()
+    const key=(e:KeyboardEvent)=>{
+      if(e.key==='Escape'){e.preventDefault();closeRef.current();return}
+      if(e.key!=='Tab')return
+      const nodes=focusable();if(!nodes.length)return
+      const first=nodes[0],last=nodes[nodes.length-1]
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+    }
+    document.addEventListener('keydown',key)
+    return()=>{document.removeEventListener('keydown',key);previous?.focus()}
+  },[titleId])
+  return <div className="modal-overlay" role="presentation"
+    onMouseDown={(e)=>{if(e.target===e.currentTarget)onRequestClose()}}>
+    <div ref={panel} className="modal-card stack" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      {children}
+    </div>
+  </div>
+}
+
 function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -804,11 +1008,12 @@ function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const members = [...new Set([ini.leadId, ...ini.members])]
     .map((id) => ctx.data.people.find((p) => p.id === id))
     .filter((p): p is Person => !!p && p.status === 'approved')
-  const close = () => { if (!ctx.busy) setOpen(false) }
+  const dirty=!!(title||description||due||assigneeId||status!=='planned')
+  const close = () => { if (!ctx.busy && (!dirty || window.confirm('Discard this unsaved task?'))) setOpen(false) }
   if (!open) return <button className="btn sm" onClick={() => setOpen(true)}><Plus size={15} /> Add task</button>
   return (
-    <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <form className="modal-card stack" role="dialog" aria-modal="true" aria-labelledby="add-task-title"
+    <Modal titleId="add-task-title" onRequestClose={close}>
+      <form className="stack"
         onSubmit={async (e) => {
           e.preventDefault()
           const dueAt = due ? new Date(due).toISOString() : undefined
@@ -819,7 +1024,11 @@ function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
         <div className="between"><h3 id="add-task-title">Add task</h3>
           <button type="button" className="btn ghost sm" aria-label="Close" onClick={close}><X size={16} /></button></div>
         <Field label="Title"><input autoFocus required maxLength={160} value={title} disabled={ctx.busy} onChange={(e) => setTitle(e.target.value)} /></Field>
-        <Field label="Description (optional)"><textarea maxLength={2000} value={description} disabled={ctx.busy} onChange={(e) => setDescription(e.target.value)} /></Field>
+        {/* Plain text here on purpose: a task has no id to attach an image to
+            until it exists, so images are added from the task's own modal. */}
+        <Field label="Description (optional)" hint="Add images after the task is created.">
+          <textarea maxLength={TASK_DETAILS_MAX} value={description} disabled={ctx.busy} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
         <Field label="Due date and time (optional)"><input type="datetime-local" value={due} disabled={ctx.busy} onChange={(e) => setDue(e.target.value)} /></Field>
         <Field label="Assigned to (optional)"><select value={assigneeId} disabled={ctx.busy} onChange={(e) => setAssigneeId(e.target.value)}>
           <option value="">Unassigned</option>{members.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}
@@ -830,8 +1039,67 @@ function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
         <div className="btn-row"><button className="btn" disabled={ctx.busy || !title.trim()}>Add task</button>
           <button type="button" className="btn ghost" disabled={ctx.busy} onClick={close}>Cancel</button></div>
       </form>
-    </div>
+    </Modal>
   )
+}
+
+function taskLocalDate(iso?:string){if(!iso)return '';const d=new Date(iso);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
+
+function TaskModal({ctx,ini,taskId,onClose}:{ctx:Ctx;ini:Initiative;taskId:string;onClose:()=>void}){
+  const task=ini.tasks.find(t=>t.id===taskId)
+  const canManage=ini.leadId===ctx.userId||ctx.isAdmin
+  const [title,setTitle]=useState(task?.title??'')
+  const [description,setDescription]=useState(task?.description??'')
+  const [due,setDue]=useState(taskLocalDate(task?.dueAt))
+  const [assigneeId,setAssigneeId]=useState(task?.assigneeId??'')
+  const [status,setStatus]=useState(task?.status??'planned')
+  // The editor re-serialises what it is given, so a legacy plain-text description
+  // comes back as markup without anyone typing. Track a real edit instead of
+  // comparing strings, or every open would claim unsaved changes.
+  const [touched,setTouched]=useState(false)
+  if(!task)return null
+  const dirty=touched||title!==task.title||due!==taskLocalDate(task.dueAt)
+    ||assigneeId!==(task.assigneeId??'')||status!==task.status
+  const requestClose=()=>{if(!ctx.busy&&(!dirty||window.confirm('Discard unsaved task changes?')))onClose()}
+  const members=[...new Set([ini.leadId,...ini.members])].map(id=>ctx.data.people.find(p=>p.id===id))
+    .filter((p):p is Person=>!!p&&p.status==='approved')
+  return <Modal titleId="task-detail-title" onRequestClose={requestClose}>
+    <form className="stack" onSubmit={async e=>{e.preventDefault();if(!canManage)return
+      const ok=await ctx.run('updateTask',{initiativeId:ini.id,taskId:task.id,title:title.trim(),description:description.trim(),
+        dueAt:due?new Date(due).toISOString():undefined,assigneeId:assigneeId||undefined,status},'Task saved.')
+      if(ok)onClose()}}>
+      <div className="between"><h3 id="task-detail-title">Task details</h3>
+        <button type="button" className="btn ghost sm" aria-label="Close" onClick={requestClose}><X size={16}/></button></div>
+      <Field label="Title"><input autoFocus value={title} maxLength={160} disabled={!canManage||ctx.busy} onChange={e=>setTitle(e.target.value)}/></Field>
+      {/* A description may hold inline images. The editor keeps the durable
+          data-object-path; the adapter strips the signed src before saving, so
+          nothing expiring and no base64 is persisted. */}
+      <Field label="Description" hint={canManage?'Paste or upload PNG, JPEG, GIF or WebP images directly.':undefined}>
+        {canManage
+          ?<Editor body={description} onChange={(html)=>{setTouched(true);setDescription(html)}}
+            uploadScopeId={`task:${task.id}`}
+            onUploadImage={(file)=>ctx.uploadTaskImage(task.id,ini.id,file)}/>
+          :<Editor body={description} readOnly/>}
+      </Field>
+      <Field label="Due date and time"><input type="datetime-local" value={due} disabled={!canManage||ctx.busy} onChange={e=>setDue(e.target.value)}/></Field>
+      <Field label="Assigned to"><select value={assigneeId} disabled={!canManage||ctx.busy} onChange={e=>setAssigneeId(e.target.value)}>
+        <option value="">Unassigned</option>{members.map(p=><option key={p.id} value={p.id}>{nameOf(p)}</option>)}
+      </select></Field>
+      <Field label="Status"><select value={status} disabled={ctx.busy||!(canManage||task.assigneeId===ctx.userId)} onChange={e=>setStatus(e.target.value as typeof status)}>
+        <option value="planned">Planned</option><option value="pending">Pending</option><option value="finished">Finished</option>
+      </select></Field>
+      <div className="btn-row">
+        {canManage?<button className="btn" disabled={ctx.busy||!title.trim()||!dirty}>Save changes</button>:null}
+        {!canManage&&task.assigneeId===ctx.userId?<button type="button" className="btn" disabled={ctx.busy||status===task.status}
+          onClick={async()=>{const ok=await ctx.run('setTaskStatus',{initiativeId:ini.id,taskId:task.id,status},'Task updated.');if(ok)onClose()}}>Save status</button>:null}
+        {canManage?<button type="button" className="btn danger" disabled={ctx.busy} onClick={async()=>{
+          if(window.confirm(`Delete task “${task.title}”? This cannot be undone.`)){
+            const ok=await ctx.run('deleteTask',{initiativeId:ini.id,taskId:task.id},'Task deleted.');if(ok)onClose()}
+        }}><Trash2 size={15}/> Delete</button>:null}
+        <button type="button" className="btn ghost" disabled={ctx.busy} onClick={requestClose}>Close</button>
+      </div>
+    </form>
+  </Modal>
 }
 
 function NewProposalForm({ ctx }: { ctx: Ctx }) {
@@ -1046,21 +1314,108 @@ function AdjustHpForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
 
 // --- document views ---------------------------------------------------
 
-function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: Initiative }) {
+const SPLIT_KEY = 'openlabs:split:v1'
+const readSplit = (name: string): number => {
+  try {
+    const value = Number(localStorage.getItem(`${SPLIT_KEY}:${name}`))
+    return Number.isFinite(value) && value >= 20 && value <= 80 ? value : 50
+  } catch { return 50 }
+}
+
+/**
+ * Two panes with a draggable, keyboard-operable divider.
+ *
+ * The ratio is only a grid-template-columns value on the wrapper, so resizing
+ * never changes the shape of the subtree: the draft editor keeps its instance,
+ * its pending autosave timer and its in-flight uploads. Below 900px the panes
+ * stack (see style.css) because a half-width column is narrower than a readable
+ * line, and the divider is hidden rather than left as a dead control.
+ */
+function SplitPane({ name, label, left, right }: {
+  name: string; label: string; left: ReactNode; right: ReactNode
+}) {
+  const [pct, setPct] = useState(() => readSplit(name))
+  const wrap = useRef<HTMLDivElement | null>(null)
+  const dragging = useRef(false)
+
+  const store = (next: number) => {
+    const clamped = Math.max(20, Math.min(80, Math.round(next)))
+    setPct(clamped)
+    try { localStorage.setItem(`${SPLIT_KEY}:${name}`, String(clamped)) } catch { /* ignore */ }
+  }
+  const fromPointer = (clientX: number) => {
+    const box = wrap.current?.getBoundingClientRect()
+    if (!box || box.width <= 0) return
+    store(((clientX - box.left) / box.width) * 100)
+  }
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => { if (dragging.current) fromPointer(e.clientX) }
+    const up = () => { dragging.current = false }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="split" ref={wrap}
+      style={{ gridTemplateColumns: `minmax(0,${pct}fr) auto minmax(0,${100 - pct}fr)` }}>
+      <div className="split-pane">{left}</div>
+      <div
+        className="split-handle" role="separator" tabIndex={0}
+        aria-orientation="vertical" aria-label={label}
+        aria-valuenow={pct} aria-valuemin={20} aria-valuemax={80}
+        onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture?.(e.pointerId) }}
+        onDoubleClick={() => store(50)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') { e.preventDefault(); store(pct - 2) }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); store(pct + 2) }
+          else if (e.key === 'Home') { e.preventDefault(); store(25) }
+          else if (e.key === 'End') { e.preventDefault(); store(75) }
+          else if (e.key === 'Enter') { e.preventDefault(); store(50) }
+        }}
+      />
+      <div className="split-pane">{right}</div>
+    </div>
+  )
+}
+
+/**
+ * The exact Roast Me version a review draft is accountable to. The obligation's
+ * targetVersion is what Research assigned, so the reference pane shows that
+ * version and not whatever the team has submitted since.
+ */
+function referencedVersion(ctx: Ctx, doc: DocumentRecord) {
+  if (!doc.targetId) return null
+  const target = ctx.data.documents.find((d) => d.id === doc.targetId)
+  if (!target) return null
+  const pinned = ctx.data.obligations.find((o) => o.id === doc.obligationId)?.targetVersion
+  const versions = versionsOf(target)
+  const version = versions.find((v) => v.version === pinned) ?? versions[versions.length - 1]
+  return version ? { target, version } : null
+}
+
+function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted }: {
+  ctx:Ctx; doc:DocumentRecord; ini:Initiative;
+  onWorkState?:(state:{unsaved:boolean;uploads:number})=>void; onSubmitted?:()=>void
+}) {
   const [title, setTitle] = useState(doc.title)
   const [body, setBody] = useState(doc.body)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [submittingRm, setSubmittingRm] = useState(false)
   const [submitMonday, setSubmitMonday] = useState(doc.targetMonday ?? losAngelesMonday())
+  const [unsaved,setUnsaved]=useState(false)
+  const [uploads,setUploads]=useState(0)
   const dirty = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(()=>onWorkState?.({unsaved,uploads}),[unsaved,uploads,onWorkState])
 
   useEffect(() => {
     if (!dirty.current) return
     clearTimeout(timer.current)
     timer.current = setTimeout(async () => {
       const ok = await ctx.run('saveDraft', { documentId: doc.id, title, body })
-      if (ok) { setSavedAt(Date.now()); dirty.current = false }
+      if (ok) { setSavedAt(Date.now()); dirty.current = false; setUnsaved(false) }
     }, 900)
     return () => clearTimeout(timer.current)
   }, [title, body]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1078,8 +1433,12 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
   const targetSaved = attached || doc.targetMonday === submitMonday
   const canFinishSubmit = canStartSubmit && (!isRm || attached || (submittingRm && !blocked && targetSaved))
 
-  return (
-    <div className="card">
+  // A review is written against one pinned Roast Me version, so that version sits
+  // beside the draft rather than behind a navigation step.
+  const reference = !isRm ? referencedVersion(ctx, doc) : null
+
+  const draftBody = (
+    <>
       <div className="between">
         <div>
           <Pill tone="info">draft</Pill>{' '}
@@ -1113,20 +1472,21 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
       <Field label="Title">
         <input
           type="text" value={title} disabled={ctx.busy}
-          onChange={(e) => { dirty.current = true; setTitle(e.target.value) }}
+          onChange={(e) => { dirty.current = true; setUnsaved(true); setTitle(e.target.value) }}
         />
       </Field>
       <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
         <Editor
           body={body}
-          onChange={(html) => { dirty.current = true; setBody(html) }}
+          onChange={(html) => { dirty.current = true; setUnsaved(true); setBody(html) }}
           uploadScopeId={doc.id}
           onUploadImage={(file) => {
             if (!doc.id) {
               alert('Please save the draft first.')
               return Promise.resolve(null)
             }
-            return ctx.uploadRmImage(doc.id, ini.id, file)
+            setUploads(n=>n+1)
+            return ctx.uploadRmImage(doc.id, ini.id, file).finally(()=>setUploads(n=>Math.max(0,n-1)))
           }}
         />
       </Field>
@@ -1136,7 +1496,7 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
           disabled={ctx.busy}
           onClick={async () => {
             const ok = await ctx.run('saveDraft', { documentId: doc.id, title, body }, 'Draft saved.')
-            if (ok) { setSavedAt(Date.now()); dirty.current = false }
+            if (ok) { setSavedAt(Date.now()); dirty.current = false; setUnsaved(false) }
           }}
         >
           Save now
@@ -1154,7 +1514,8 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
             if (!window.confirm(`Submit this ${label}? You can reopen it later to revise.`)) return
             clearTimeout(timer.current) // cancel any pending autosave
             dirty.current = false
-            await ctx.run('submitDocument', { documentId: doc.id, title, body }, 'Submitted.')
+            const ok=await ctx.run('submitDocument', { documentId: doc.id, title, body }, 'Submitted.')
+            if(ok)onSubmitted?.()
           }}
         >
           <Send size={15} /> {isRm && !attached && !submittingRm ? 'Choose cycle & submit' : 'Submit'}
@@ -1165,6 +1526,35 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
           Any member of the team can draft; the initiative lead submits the team's Roast Me.
         </p>
       ) : null}
+    </>
+  )
+
+  if (!reference) return <div className="card">{draftBody}</div>
+  return (
+    <div className="card">
+      <SplitPane
+        name="review" label="Resize the Roast Me and review panes"
+        left={
+          <section aria-label={`Roast Me under review, version ${reference.version.version}`}>
+            <div className="between">
+              <div>
+                <strong>{reference.target.title}</strong>
+                <div className="field-hint">
+                  Reviewing v{reference.version.version}
+                  {reference.version.at ? ` submitted ${fmtDate(reference.version.at)}` : ''}
+                  {' - '}
+                  {reference.target.authorName ?? ctx.personName(reference.target.authorId)}
+                </div>
+              </div>
+              <a className="btn ghost sm" href={`#/document/${reference.target.id}`}>Open full page</a>
+            </div>
+            {/* Read-only and pinned: the reference never becomes editable, and it
+                shows the assigned version even after a later revision. */}
+            <Editor body={sanitize(reference.version.body)} readOnly />
+          </section>
+        }
+        right={draftBody}
+      />
     </div>
   )
 }
@@ -1174,24 +1564,26 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
  * cycle. It is provisionally kept under the current Los Angeles week until the
  * lead chooses the cycle in the submission flow.
  */
-function StartRoastMe({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+function StartRoastMe({ ctx, ini, onOpen }: { ctx: Ctx; ini: Initiative; onOpen:(id:string)=>void }) {
   const monday = losAngelesMonday()
+  const [waiting,setWaiting]=useState(false)
   const existing = ctx.data.documents.find((d) =>
     d.initiativeId === ini.id && d.kind === 'rm' && !d.historical && d.targetMonday === monday)
+  useEffect(()=>{if(waiting&&existing){setWaiting(false);onOpen(existing.id)}},[waiting,existing,onOpen])
   return (
     <div className="row">
       <button
         className="btn sm"
-        disabled={ctx.busy || ini.status !== 'active'}
+        disabled={ctx.busy || waiting || ini.status !== 'active'}
         title={ini.status !== 'active' ? 'This initiative is not active.' : ''}
         onClick={async () => {
-          if (existing) { go(`#/document/${existing.id}`); return }
+          if (existing) { onOpen(existing.id); return }
           const ok = await ctx.run('createDraft',
             { initiativeId: ini.id, kind: 'rm' }, 'Roast Me draft started.')
-          if (ok) go(`#/initiative/${ini.id}/documents`)
+          if (ok) setWaiting(true)
         }}
       >
-        <Plus size={15} /> {existing ? 'Open this week’s Roast Me' : 'Start Roast Me'}
+        <Plus size={15} /> {waiting?'Opening…':existing ? 'Open this week’s Roast Me' : 'Start Roast Me'}
       </button>
     </div>
   )
@@ -1233,6 +1625,199 @@ function CommentComposer({ ctx, doc, version }: { ctx: Ctx; doc: DocumentRecord;
           onClick={() => setOpen(false)}>Cancel</button>
       </div>
     </form>
+  )
+}
+
+/**
+ * Inline comments on the Roast Me itself.
+ *
+ * The version is rendered WITH its formatting and inline images, and each
+ * anchored thread is drawn over the passage it was recorded against. Exactness
+ * comes from the shared contract in highlight.ts rather than from stripping the
+ * markup: the canonical text and the rendered DOM are produced by the same walk,
+ * and a selection is converted to offsets through that walk's index map, so no
+ * quote is ever matched approximately.
+ *
+ * A highlight is reachable three ways, because a popover that only answers to
+ * hover is unusable with a keyboard or a finger: pointer hover, keyboard focus,
+ * and click or tap, which pins it open until Escape or a click elsewhere.
+ */
+function AnnotatedVersion({ ctx, doc, version, body, threads }: {
+  ctx: Ctx; doc: DocumentRecord; version: number; body: string; threads: Thread[]
+}) {
+  const text = useMemo(() => textOfHtml(body), [body])
+  const spans = useMemo(() => resolvableSpans(threads, text), [threads, text])
+  const spanKey = useMemo(
+    () => spans.map((s) => `${s.start}:${s.end}:${s.threadIds.join(',')}`).join('|'),
+    [spans],
+  )
+  const byId = useMemo(() => new Map(threads.map((t) => [t.id, t])), [threads])
+  const anchored = threads.filter((t) => t.anchorStart !== undefined)
+  const dropped = anchored.length - spans.length
+
+  const [active, setActive] = useState<{ ids: string[]; top: number; left: number } | null>(null)
+  const [pinned, setPinned] = useState(false)
+  const [pending, setPending] = useState<Anchor | null>(null)
+  const [comment, setComment] = useState('')
+  const [misaligned, setMisaligned] = useState(false)
+  const content = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<TextMap | null>(null)
+  const popoverId = `hl-popover-${doc.id}-${version}`
+
+  // Render the formatted body ourselves, through the allowlist, then draw the
+  // marks over its text nodes. Deliberately NOT inside the Tiptap view: that
+  // view's mutation observer would fight foreign nodes.
+  useEffect(() => {
+    const node = content.current
+    if (!node) return
+    setActive(null)
+    setPinned(false)
+    const rendered = renderFormatted(body, node)
+    if (!rendered) { mapRef.current = null; setMisaligned(true); return }
+    // The canonical text and the rendered text come from the same walk, so this
+    // should never differ. If it somehow does, show the content and draw nothing
+    // rather than place a highlight on words it does not belong to.
+    if (rendered.text !== text) { mapRef.current = rendered; setMisaligned(true); return }
+    setMisaligned(false)
+    applyHighlights(spans, rendered)
+    mapRef.current = mapRenderedText(node)
+  }, [body, text, spanKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // aria-expanded / aria-describedby live on DOM-created marks, so they are set
+  // where the active mark is known.
+  useEffect(() => {
+    const node = content.current
+    if (!node) return
+    node.querySelectorAll('mark.hl').forEach((mark) => {
+      mark.classList.remove('open')
+      mark.setAttribute('aria-expanded', 'false')
+      mark.removeAttribute('aria-describedby')
+    })
+    if (!active) return
+    node.querySelectorAll('mark.hl').forEach((mark) => {
+      const ids = (mark.getAttribute('data-threads') ?? '').split(' ').filter(Boolean)
+      if (!ids.some((id) => active.ids.includes(id))) return
+      mark.classList.add('open')
+      mark.setAttribute('aria-expanded', 'true')
+      mark.setAttribute('aria-describedby', popoverId)
+    })
+  }, [active, popoverId])
+
+  const close = () => { setActive(null); setPinned(false) }
+  const markAt = (target: EventTarget | null): HTMLElement | null => {
+    const element = target as Element | null
+    return element && 'closest' in element
+      ? (element.closest('mark.hl') as HTMLElement | null)
+      : null
+  }
+  const show = (mark: HTMLElement) => {
+    const ids = (mark.getAttribute('data-threads') ?? '').split(' ').filter(Boolean)
+    if (!ids.length) return
+    setActive({ ids, top: mark.offsetTop + mark.offsetHeight, left: mark.offsetLeft })
+  }
+  const readSelection = () => {
+    const node = content.current
+    const map = mapRef.current
+    if (!node || !map) return
+    const anchor = selectionAnchor(node, map)
+    if (!anchor || anchorError(anchor, map.text)) { setPending(null); return }
+    setPending(anchor)
+  }
+
+  return (
+    <div
+      className="annotated"
+      onKeyDown={(e) => { if (e.key === 'Escape') { close(); setPending(null) } }}
+    >
+      {/* Delegated handlers: the marks are DOM nodes, so one listener per event
+          on the wrapper serves them all and keeps React owning the popover. */}
+      <div
+        className="annotated-content" ref={content}
+        onMouseUp={readSelection} onKeyUp={readSelection}
+        onMouseOver={(e) => { const m = markAt(e.target); if (m && !pinned) show(m) }}
+        onMouseOut={() => { if (!pinned) setActive(null) }}
+        onFocus={(e) => { const m = markAt(e.target); if (m) show(m) }}
+        onBlur={() => { if (!pinned) setActive(null) }}
+        onClick={(e) => {
+          const m = markAt(e.target)
+          if (!m) { close(); return }
+          if (pinned && active) { close(); return }
+          show(m); setPinned(true)
+        }}
+        onKeyDownCapture={(e) => {
+          const m = markAt(e.target)
+          if (!m || (e.key !== 'Enter' && e.key !== ' ')) return
+          e.preventDefault()
+          if (pinned && active) { close(); return }
+          show(m); setPinned(true)
+        }}
+      />
+      {active ? (
+        <div className="hl-popover" id={popoverId} role="note"
+          style={{ top: active.top, left: active.left }}>
+          {active.ids.map((id) => {
+            const thread = byId.get(id)
+            if (!thread) return null
+            return (
+              <div className="hl-popover-thread" key={id}>
+                <strong>{ctx.personName(thread.messages[0]?.authorId ?? '')}</strong>
+                <span>{thread.messages[0]?.body ?? ''}</span>
+                {thread.messages.length > 1
+                  ? <em>{thread.messages.length - 1} more repl{thread.messages.length === 2 ? 'y' : 'ies'} below</em>
+                  : null}
+                {thread.resolved ? <em>resolved</em> : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      {misaligned ? (
+        <p className="field-hint" role="status">
+          This version is shown without highlights because its text could not be
+          measured here. Existing comments are listed below.
+        </p>
+      ) : null}
+
+      {ctx.approved && pending ? (
+        <form
+          className="stack card" style={{ marginTop: 12 }}
+          onSubmit={async (e) => {
+            e.preventDefault()
+            const ok = await ctx.run('addThread', {
+              documentId: doc.id, version, quote: pending.quote,
+              anchorStart: pending.start, anchorEnd: pending.end, body: comment.trim(),
+            }, 'Comment posted on the selected passage.')
+            if (ok) { setPending(null); setComment('') }
+          }}
+        >
+          <Field label={`Selected passage in v${version}`}>
+            <blockquote className="quote">{pending.quote}</blockquote>
+          </Field>
+          <Field label="Comment">
+            <textarea autoFocus value={comment} disabled={ctx.busy}
+              onChange={(e) => setComment(e.target.value)} />
+          </Field>
+          <div className="btn-row">
+            <button className="btn sm" disabled={ctx.busy || !comment.trim()}>Comment on selection</button>
+            <button type="button" className="btn ghost sm" disabled={ctx.busy}
+              onClick={() => { setPending(null); setComment('') }}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
+      {ctx.approved && !pending ? (
+        <p className="field-hint" style={{ marginTop: 8 }}>
+          Select any passage above to comment on it. Highlights show where existing
+          comments point; hover, tab to one, or tap it to read.
+        </p>
+      ) : null}
+      {dropped > 0 ? (
+        <p className="field-hint">
+          {dropped} comment{dropped === 1 ? '' : 's'} on this version point at text
+          that has since changed, so {dropped === 1 ? 'it is' : 'they are'} listed
+          below without a highlight rather than marked over different words.
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -1288,6 +1873,8 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
   const shown = versions.find((v) => v.version === ver) ?? versions[versions.length - 1]
   const threads = ctx.data.threads
     .filter((t) => t.documentId === doc.id && t.version === (shown?.version ?? doc.version))
+  const anchoredCount = threads.filter((t) => t.anchorStart !== undefined).length
+  const [annotated, setAnnotated] = useState(false)
   const target = doc.targetId ? ctx.data.documents.find((x) => x.id === doc.targetId) : null
   const canRevise = !doc.historical && (doc.kind === 'rm'
     ? ini.leadId === ctx.userId
@@ -1323,7 +1910,21 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             </Field>
           ) : null}
         </div>
-        <Editor body={sanitize(shown?.body ?? doc.body)} readOnly />
+        {/* Both modes show the same formatted version. Reading is the plain
+            read-only editor; commenting adds the highlight layer and selection
+            handling over our own allowlisted rendering of the same content. */}
+        <div className="tabs" style={{ marginTop: 8 }}>
+          <button type="button" className={`tab ${annotated ? '' : 'active'}`}
+            aria-pressed={!annotated} onClick={() => setAnnotated(false)}>Reading</button>
+          <button type="button" className={`tab ${annotated ? 'active' : ''}`}
+            aria-pressed={annotated} onClick={() => setAnnotated(true)}>
+            Inline comments{anchoredCount ? ` (${anchoredCount})` : ''}
+          </button>
+        </div>
+        {annotated
+          ? <AnnotatedVersion ctx={ctx} doc={doc} version={shown?.version ?? doc.version}
+              body={sanitize(shown?.body ?? doc.body)} threads={threads} />
+          : <Editor body={sanitize(shown?.body ?? doc.body)} readOnly />}
         {canRevise ? (
           <div className="btn-row" style={{ marginTop: 12 }}>
             <button
@@ -1564,8 +2165,10 @@ function PageProfile({ ctx }: { ctx: Ctx }) {
       <div className="card">
         <div className="row">
           <strong>{nameOf(me)}</strong>
-          <Pill tone={statusTone(me.status)}>{accountStatusLabel(me)}</Pill>
-          <RoleBadges person={me} />
+          {/* The same single, deduplicated badge set the header shows. */}
+          {accountRoleBadges(me).map(({ label, tone }) => (
+            <Pill key={label} tone={tone}>{label}</Pill>
+          ))}
         </div>
         <p className="field-hint" style={{ marginTop: 10 }}>
           {email ? <>Signed in as <strong>{email}</strong>. </> : null}
@@ -1593,7 +2196,7 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const hue = Math.abs(hash) % 360
   
   const bg = ini.coverUrl 
-    ? `url(${ini.coverUrl}) center/cover no-repeat` 
+    ? `url(${ini.coverUrl}) ${ini.coverPositionX??50}% ${ini.coverPositionY??50}%/cover no-repeat`
     : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
 
   return (
@@ -1879,10 +2482,40 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   )
 }
 
+function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClose:()=>void}){
+  const doc=ctx.data.documents.find(d=>d.id===documentId)
+  const ini=doc?ctx.data.initiatives.find(i=>i.id===doc.initiativeId):undefined
+  const [work,setWork]=useState({unsaved:false,uploads:0})
+  if(!doc||!ini)return null
+  const requestClose=()=>{
+    if(work.uploads>0){if(!window.confirm('An image upload is still running. Close and stop inserting it into this editor?'))return}
+    else if(work.unsaved&&!window.confirm('Close with unsaved Roast Me changes?'))return
+    onClose()
+  }
+  const canEdit=doc.authorId===ctx.userId||(doc.kind==='rm'&&ini.members.includes(ctx.userId??''))
+  return <Modal titleId="rm-modal-title" onRequestClose={requestClose}>
+    <div className="between"><h2 id="rm-modal-title">{doc.title}</h2>
+      <div className="row"><a className="btn ghost sm" href={`#/document/${doc.id}`} onClick={e=>{
+        if(work.uploads>0&&!window.confirm('An image upload is running. Leave this modal?'))e.preventDefault()
+        else if(work.unsaved&&!window.confirm('Open the full page with unsaved changes?'))e.preventDefault()
+      }}>Open full page</a>
+        <button className="btn ghost sm" onClick={requestClose} aria-label="Close"><X size={16}/></button></div></div>
+    {doc.status==='draft'&&canEdit
+      ? <DraftEditor ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose}/>
+      : doc.status==='draft'
+        ? <p className="muted">This document is still a private draft.</p>
+        : <SubmittedDoc key={doc.id} ctx={ctx} doc={doc} ini={ini}/>}
+  </Modal>
+}
+
 function PageInitiative({ ctx }: { ctx: Ctx }) {
   const id = ctx.route.parts[1]
   const tab = ctx.route.parts[2] ?? 'overview'
   const ini = ctx.data.initiatives.find((i) => i.id === id)
+  const [taskModalId,setTaskModalId]=useState<string|null>(null)
+  const [documentModalId,setDocumentModalId]=useState<string|null>(null)
+  const [documentSort,setDocumentSort]=useState<DocumentSort>('newest')
+  const [taskSort,setTaskSort]=useState<TaskSort>('due')
   if (!ini) return <NotFound />
 
   const internal = ctx.approved
@@ -1896,12 +2529,8 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
   // Canonical historical records are imported as one RM/review pair per source
   // week. Keep live documents in their existing order, while presenting those
   // historical weeks chronologically with the RM before its linked review.
-  const docs = [
-    ...initiativeDocs.filter((d) => d.historical).sort((a, b) =>
-      (a.sourceOrder ?? Number.MAX_SAFE_INTEGER) - (b.sourceOrder ?? Number.MAX_SAFE_INTEGER) ||
-      (a.kind === 'rm' ? 0 : 1) - (b.kind === 'rm' ? 0 : 1)),
-    ...initiativeDocs.filter((d) => !d.historical),
-  ]
+  const docs = sortDocuments(initiativeDocs,documentSort)
+  const tasks = sortTasks(ini.tasks,taskSort)
   const joinReqs = ctx.data.requests.filter((r) =>
     r.kind === 'join' && r.initiativeId === ini.id && r.status === 'pending')
   const myPendingJoin = ctx.data.requests.some((r) =>
@@ -1918,7 +2547,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
   for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
   const hue = Math.abs(hash) % 360
   const bg = ini.coverUrl 
-    ? `url(${ini.coverUrl}) center/cover no-repeat` 
+    ? `url(${ini.coverUrl}) ${ini.coverPositionX??50}% ${ini.coverPositionY??50}%/cover no-repeat`
     : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
 
   return (
@@ -1980,30 +2609,36 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="card">
           <div className="between">
             <h3>Tasks</h3>
-            <span className="muted">{done}/{ini.tasks.length} done</span>
+            <div className="row"><span className="muted">{done}/{ini.tasks.length} done</span>
+              <select aria-label="Sort tasks" value={taskSort} onChange={e=>setTaskSort(e.target.value as TaskSort)}>
+                <option value="due">Due date</option><option value="title">Title</option><option value="status">Status</option>
+              </select>
+            </div>
           </div>
           <div className="stack" style={{ margin: '12px 0' }}>
-            {ini.tasks.length ? ini.tasks.map((t) => (
+            {tasks.length ? tasks.map((t) => (
               <div key={t.id} className="task-row">
                 <div style={{ flex: 1 }}><strong style={{ textDecoration: t.status === 'finished' ? 'line-through' : 'none' }}>{t.title}</strong>
-                  {t.description ? <p className="field-hint" style={{ whiteSpace: 'pre-wrap' }}>{t.description}</p> : null}
+                  {/* Rendered through the read-only editor after sanitize(), the
+                      same path every other stored body takes - no raw HTML is
+                      injected, and inline images resolve from their object path. */}
+                  {t.description
+                    ? <div className="task-description">
+                        <Editor body={sanitize(t.description)} readOnly />
+                      </div>
+                    : null}
                   <div className="row field-hint">
                     {t.assigneeId ? <span>Assigned to {ctx.personName(t.assigneeId)}</span> : <span>Unassigned</span>}
                     {t.dueAt ? <span>Due {fmtDateTime(t.dueAt)}</span> : null}
                   </div>
                 </div>
-                <select aria-label={`Status for ${t.title}`} value={t.status}
-                  disabled={ctx.busy || !(canManage || t.assigneeId === ctx.userId)}
-                  onChange={(e) => ctx.run('setTaskStatus', { initiativeId: ini.id, taskId: t.id, status: e.target.value }, 'Task updated.')}>
-                  <option value="planned">Planned</option><option value="pending">Pending</option><option value="finished">Finished</option>
-                </select>
-                {canManage ? <button className="btn danger sm" disabled={ctx.busy} aria-label={`Delete ${t.title}`}
-                  onClick={() => { if (window.confirm(`Delete task “${t.title}”? This cannot be undone.`)) void ctx.run('deleteTask', { initiativeId: ini.id, taskId: t.id }, 'Task deleted.') }}>
-                  <Trash2 size={15} /> Delete</button> : null}
+                <Pill tone={t.status==='finished'?'good':t.status==='pending'?'warn':'muted'}>{t.status}</Pill>
+                <button className="btn ghost sm" onClick={()=>setTaskModalId(t.id)}>Open task</button>
               </div>
             )) : <Empty>No tasks yet.</Empty>}
           </div>
           {canManage ? <AddTaskForm ctx={ctx} ini={ini} /> : null}
+          {taskModalId?<TaskModal key={taskModalId} ctx={ctx} ini={ini} taskId={taskModalId} onClose={()=>setTaskModalId(null)}/>:null}
         </div>
       ) : null}
 
@@ -2087,26 +2722,37 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="card">
           <div className="between">
             <h3>Documents</h3>
-            {isMember ? <StartRoastMe ctx={ctx} ini={ini} /> : null}
+            <div className="row">
+              <select aria-label="Sort documents" value={documentSort} onChange={e=>setDocumentSort(e.target.value as DocumentSort)}>
+                <option value="newest">Newest first</option><option value="title">Title</option>
+                <option value="kind">Kind</option><option value="status">Status</option>
+              </select>
+              {isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
+            </div>
           </div>
           <table className="table" style={{ marginTop: 10 }}>
             <thead>
-              <tr><th>Title</th><th>Kind</th><th>Status</th><th>Version</th><th>Submitted</th></tr>
+              <tr><th>Title</th><th>Kind</th><th>Status</th><th>Period / submitted</th></tr>
             </thead>
             <tbody>
               {docs.length ? docs.map((d) => (
                 <tr key={d.id}>
-                  <td><a href={`#/document/${d.id}`}>{d.title}</a>{d.historical && (d.sourceWeek || d.sourcePeriod) ? <div className="field-hint">{d.sourceWeek ? `Week: ${d.sourceWeek}` : d.sourcePeriod}</div> : null}</td>
+                  <td><a href={`#/document/${d.id}`} onClick={(e)=>{
+                    if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0){e.preventDefault();setDocumentModalId(d.id)}
+                  }}>{d.title}</a>{d.historical && (d.sourceWeek || d.sourcePeriod) ? <div className="field-hint">{d.sourceWeek ? `Week: ${d.sourceWeek}` : d.sourcePeriod}</div> : null}</td>
                   <td>{d.kind === 'rm' ? 'Roast Me' : 'review'}{d.historical ? ' (historical)' : ''}{!d.historical && d.kind === 'rm' && d.targetMonday ? <div className="field-hint">Week of {d.targetMonday}</div> : null}</td>
                   <td><Pill tone={statusTone(d.status)}>{d.status}</Pill></td>
-                  <td>v{d.version}</td>
-                  <td>{d.submittedAt ? fmtDate(d.submittedAt) : d.sourcePeriod ?? d.sourceWeek ?? 'Date unavailable'}</td>
+                  <td>{d.historical
+                    ? [d.sourcePeriod,d.sourceWeek].filter(Boolean).join(' · ') || 'Historical period unavailable'
+                    : d.submittedAt ? fmtDate(d.submittedAt) : d.targetMonday ? `Week of ${d.targetMonday}` : 'Date unavailable'}</td>
                 </tr>
-              )) : <tr><td colSpan={5} className="muted">No documents yet.</td></tr>}
+              )) : <tr><td colSpan={4} className="muted">No documents yet.</td></tr>}
             </tbody>
           </table>
         </div>
       ) : null}
+
+      {documentModalId?<DocumentModal key={documentModalId} ctx={ctx} documentId={documentModalId} onClose={()=>setDocumentModalId(null)}/>:null}
 
       {tab === 'activity' && internal ? (
         <div className="card">
@@ -2704,6 +3350,10 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [dark,setDark]=useState(()=>localStorage.getItem('openlabs-theme')==='dark'
+    ||(localStorage.getItem('openlabs-theme')===null&&window.matchMedia?.('(prefers-color-scheme: dark)').matches))
+
+  useEffect(()=>{localStorage.setItem('openlabs-theme',dark?'dark':'light')},[dark])
 
   useEffect(() => {
     const on = () => setRoute(parseHash())
@@ -2719,29 +3369,41 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
 
   const me = userId ? data.people.find((p) => p.id === userId) ?? null : null
   const approved = me?.status === 'approved'
-  const roles = me?.roles ?? []
+  const actualRoles = roleLabels(me?.roles ?? [])
+  /**
+   * Role preview: a display-only simulation of a NARROWER role, so a lead or
+   * admin can see what an ordinary Member sees.
+   *
+   * It can only ever remove grants - `previewRoles` is kept to a subset of the
+   * account's own - so it cannot show a capability the account does not have.
+   * It grants nothing and changes no role.
+   */
+  const [previewRoles, setPreviewRoles] = useState<string[] | null>(null)
+  const previewing = previewRoles !== null && approved
+  const roles = previewing ? previewRoles! : actualRoles
   const isResearch = approved && (roles.includes('research') || roles.includes('admin'))
   const isOperations = approved && (roles.includes('operations') || roles.includes('admin'))
   const isAdmin = isResearch || isOperations
 
-  const guard = async (fn: () => Promise<unknown>, okMsg?: string): Promise<boolean> => {
-    setError(null)
-    setNotice(null)
-    setBusy(true)
-    try {
-      await fn()
-      if (okMsg) setNotice(okMsg)
-      return true
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      return false
-    } finally {
-      setBusy(false)
-    }
-  }
+  /**
+   * Read at dispatch time, not captured. A callback built before the preview
+   * started - a queued autosave, a file picker handler, an upload retry - still
+   * sees the current value when it finally fires, so entering preview stops work
+   * that was already in flight rather than only work started afterwards.
+   */
+  const previewingRef = useRef(false)
+  previewingRef.current = previewing
 
-  const run = (action: string, payload: any, okMsg?: string) =>
-    guard(() => onAction(action, payload), okMsg)
+  // One gateway for every mutation, so no entrypoint can route around the
+  // preview refusal. src/preview-gateway.test.ts exercises these exact objects.
+  const { guard, run, uploadRmImage, uploadTaskImage } = useMemo(
+    () => createMutationGateway({
+      onAction,
+      isPreviewing: () => previewingRef.current,
+      setBusy, setError, setNotice,
+    }),
+    [onAction],
+  )
 
   const ctx: Ctx = {
     data, me, userId, approved, isResearch, isOperations, isAdmin, mode, busy, route,
@@ -2754,12 +3416,10 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     onSignIn: (email, details) =>
       guard(() => onSignIn(email, details), 'Check your email for a sign-in link.').then(() => undefined),
     onSignOut: () => guard(() => onSignOut()).then(() => undefined),
-    uploadRmImage: async (documentId, initiativeId, file) => {
-      const payload: any = { documentId, initiativeId, file, result: null }
-      await guard(() => onAction('uploadRmImage', payload))
-      if (!payload.result) throw new Error('Upload failed')
-      return payload.result
-    },
+    // Both uploads are mutations - they write bytes and register a row - so they
+    // come from the same gateway as `run`, not from a second path.
+    uploadRmImage,
+    uploadTaskImage,
   }
 
   const leads = !!userId && data.initiatives.some((i) => i.leadId === userId)
@@ -2806,11 +3466,46 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   const narrow = route.name === 'new-proposal' || route.name === 'signin' || route.name === 'profile'
 
   return (
-    <div className="ol">
+    <div className={`ol ${dark?'theme-dark':''}`}>
       <Sidebar nav={nav} route={route} mode={mode} />
       <div className="ol-main">
-        <TopBar ctx={ctx} />
-        <div className={`ol-page ${narrow ? 'ol-page-narrow' : ''}`}>{render()}</div>
+        <TopBar ctx={ctx} dark={dark} onToggleDark={()=>setDark(v=>!v)} />
+        {previewing ? (
+          <div className="preview-banner" role="status">
+            <span>
+              <strong>Role preview</strong> — you are seeing Open Labs as
+              {' '}{previewRoles!.length ? previewRoles!.join(' + ') : 'an ordinary Member'}.
+              Nothing can be changed while this is on, and your real
+              {' '}{actualRoles.length ? actualRoles.join(' + ') : 'Member'} access is untouched.
+            </span>
+            <button className="btn sm" onClick={() => setPreviewRoles(null)}>Exit preview</button>
+          </div>
+        ) : null}
+        <div className={`ol-page ${narrow ? 'ol-page-narrow' : ''}`}>
+          {render()}
+          {/* Offered only to an account that actually holds a grant, and only
+              downward, so a preview can never display more than it really has. */}
+          {approved && actualRoles.length > 0 && !previewing ? (
+            <div className="card" style={{ marginTop: 24 }}>
+              <h3>Preview another role</h3>
+              <p className="muted">
+                See the app as a narrower role would. This is a read-only
+                simulation: it changes nothing, grants nothing, and every action
+                stays disabled until you exit.
+              </p>
+              <div className="btn-row">
+                <button className="btn ghost sm" disabled={busy} onClick={() => setPreviewRoles([])}>
+                  View as a Member
+                </button>
+                {actualRoles.filter((r) => r !== 'admin').map((role) => (
+                  <button key={role} className="btn ghost sm" disabled={busy} onClick={() => setPreviewRoles([role])}>
+                    View as {role} only
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
       <Toasts
         error={error} notice={notice}

@@ -49,4 +49,16 @@ describe('initiative tasks', () => {
     })
     expect(data.initiatives.find((i) => i.id === 'sound')!.tasks.some((t) => t.id === 't2')).toBe(false)
   })
+
+  it('lets the lead edit task details while rejecting a teammate', async () => {
+    const payload = { initiativeId:'sound', taskId:'t2', title:'Pilot session',
+      description:'Recruit and prepare the room.', dueAt:'2026-09-20T20:00:00.000Z',
+      assigneeId:'maya', status:'pending' }
+    await expect(demoAction(fresh(),'alex','updateTask',payload)).rejects.toThrow(/lead|admin/i)
+    const data=await demoAction(fresh(),'maya','updateTask',payload)
+    expect(data.initiatives.find(i=>i.id==='sound')!.tasks.find(t=>t.id==='t2')).toMatchObject({
+      title:payload.title,description:payload.description,dueAt:payload.dueAt,
+      assigneeId:payload.assigneeId,status:payload.status,
+    })
+  })
 })

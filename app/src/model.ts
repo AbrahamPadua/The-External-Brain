@@ -1,8 +1,13 @@
 export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
 export type Person = { id: string; name: string; email: string; status: AccountStatus; roles: string[]; major?: string; interests?: string }
 export type TaskStatus = 'planned' | 'pending' | 'finished'
+/**
+ * Task description bound, matching tasks_details_length in migration 017. It is
+ * sized for markup with inline image references rather than a bare sentence.
+ */
+export const TASK_DETAILS_MAX = 8000
 export type InitiativeTask = { id:string; title:string; description:string; status:TaskStatus; assigneeId?:string; dueAt?:string }
-export type Initiative = { id: string; title: string; abstract: string; leadId: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string }
+export type Initiative = { id: string; title: string; abstract: string; leadId: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
 /**
  * A document is a Roast Me ('rm' - constructive criticism of a team's work) or a
  * peer review. `targetMonday` is the Monday of the Los Angeles week an unsubmitted
@@ -12,8 +17,16 @@ export type Initiative = { id: string; title: string; abstract: string; leadId: 
 export type DocumentRecord = { id:string; initiativeId:string; kind:'rm'|'review'; title:string; authorId:string; authorName?:string; status:string; body:string; version:number; submittedAt?:string; targetId?:string; targetMonday?:string; obligationId?:string; draftRevision?:number; historical?:boolean; sourceKey?:string; sourcePeriod?:string; sourcePeriodKey?:string; sourceWeek?:string; sourceOrder?:number; versions:{version:number;body:string;at:string}[] }
 /** An opened working week. `startsOn` is the Monday, matching cycles.starts_on. */
 export type Cycle = { startsOn:string; isBreak:boolean; rmDue?:string; reviewDue?:string }
-export type Obligation = { id:string; initiativeId:string; assigneeId:string; kind:'rm'|'review'; due:string; status:string; targetId?:string }
-export type Thread = { id:string;documentId:string;version:number;quote:string;resolved:boolean;messages:{authorId:string;body:string;at:string}[] }
+/** `targetVersion` pins a review obligation to the exact Roast Me version assigned. */
+export type Obligation = { id:string; initiativeId:string; assigneeId:string; kind:'rm'|'review'; due:string; status:string; targetId?:string; targetVersion?:number }
+/**
+ * A comment thread. `version` is the submitted version it is anchored to, so a
+ * thread never follows the document onto a later revision. `anchorStart`/
+ * `anchorEnd` are character offsets into that version's plain text when the
+ * thread came from a text selection; older quote-only threads leave them unset
+ * and simply render beside the document.
+ */
+export type Thread = { id:string;documentId:string;version:number;quote:string;resolved:boolean;anchorStart?:number;anchorEnd?:number;messages:{authorId:string;body:string;at:string}[] }
 export type Request = { id:string;kind:'proposal'|'join';userId:string;initiativeId?:string;title:string;body:string;status:string;feedback?:string }
 export type Audit = { id:string;at:string;actor:string;action:string;detail:string }
 export type Notification = { id:string;userId:string;kind:string;payload:any;createdAt:string;readAt?:string }

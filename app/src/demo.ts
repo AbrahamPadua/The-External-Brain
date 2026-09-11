@@ -30,12 +30,16 @@
 import type {
   Data, Person, Initiative, DocumentRecord, Thread, Request,
 } from './model'
-import { seed, uid, imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
+import {
+  seed, uid, imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError,
+  TASK_DETAILS_MAX,
+} from './model'
 import type { LedgerEvent } from './domain'
 import {
   appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries,
   isMondayIso, losAngelesMonday,
 } from './domain'
+import { ANCHOR_MAX, anchorError, normalizeText, textOfHtml } from './highlight'
 
 const DATA_KEY = 'openlabs:demo:data:v2'
 const USER_KEY = 'openlabs:demo:user:v2'
@@ -596,20 +600,35 @@ const handlers: Record<string, Handler> = {
       ? doc.versions.map((v) => v.version)
       : (doc.status !== 'draft' ? [doc.version] : [])
     if (!submitted.includes(version)) deny('Comments can only be anchored to a submitted version.')
-    const quote = String(p.quote ?? '').trim()
     const body = String(p.body ?? '').trim()
-    if (!quote) deny('Paste the passage you are responding to.')
     if (!body) deny('Write your comment.')
+    // An anchored thread carries the character range of the selected passage, so
+    // the quote is kept verbatim - trimming it would break the measured range.
+    const anchored = Number.isInteger(p.anchorStart) && Number.isInteger(p.anchorEnd)
+    const quote = anchored ? normalizeText(String(p.quote ?? '')) : String(p.quote ?? '').trim()
+    if (!quote) deny('Select the passage you are responding to.')
+    let anchorStart: number | undefined
+    let anchorEnd: number | undefined
+    if (anchored) {
+      const versionText = textOfHtml(doc.versions.find((v) => v.version === version)?.body ?? doc.body)
+      const problem = anchorError({ start: p.anchorStart, end: p.anchorEnd, quote }, versionText)
+      if (problem) deny(problem)
+      anchorStart = p.anchorStart
+      anchorEnd = p.anchorEnd
+    }
     const thread: Thread = {
       id: uid(),
       documentId: doc.id,
       version,
-      quote: quote.slice(0, 280),
+      quote: quote.slice(0, ANCHOR_MAX),
       resolved: false,
+      anchorStart,
+      anchorEnd,
       messages: [{ authorId: me.id, body, at: nowIso() }],
     }
     d.threads.unshift(thread)
-    audit(d, me, 'comment.add', `Commented on "${doc.title}" v${version}`)
+    audit(d, me, 'comment.add',
+      `Commented on "${doc.title}" v${version}${anchored ? ' (highlighted passage)' : ''}`)
   },
 
   replyThread: ({ d, actor }, p) => {
@@ -651,6 +670,25 @@ const handlers: Record<string, Handler> = {
     audit(d, me, 'task.status', `Marked "${task.title}" ${status} on "${ini.title}" [${ini.id}]`)
   },
 
+  updateTask: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the initiative lead or an admin can edit tasks.')
+    const task = need(ini.tasks.find((t) => t.id === p.taskId), 'Task not found.')
+    const title = String(p.title ?? '').trim()
+    const description = String(p.description ?? '').trim()
+    const status = String(p.status)
+    const assigneeId = p.assigneeId ? String(p.assigneeId) : undefined
+    if (!title || title.length > 160) deny('Task title must be 1 to 160 characters.')
+    if (description.length > TASK_DETAILS_MAX) {
+      deny(`Task description must be at most ${TASK_DETAILS_MAX} characters.`)
+    }
+    if (!['planned','pending','finished'].includes(status)) deny('Invalid task status.')
+    if (assigneeId && !ini.members.includes(assigneeId)) deny('Assignee must be on the initiative team.')
+    Object.assign(task,{title,description,status,assigneeId,dueAt:p.dueAt ? String(p.dueAt) : undefined})
+    audit(d,me,'task.update',`Updated task "${title}" on "${ini.title}" [${ini.id}]`)
+  },
+
   uploadCover: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
@@ -681,11 +719,53 @@ const handlers: Record<string, Handler> = {
     }
   },
 
+  // Task description images: the same validated upload and durable object path
+  // as a Roast Me image, limited to whoever may edit the task's description.
+  uploadTaskImage: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.tasks.some((t) => t.id === p.taskId)),
+      'Task not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) {
+      deny('Only the initiative lead or an admin can add task images.')
+    }
+    const file = p.file as File
+    const problem = imageFileError(file)
+    if (problem) deny(problem)
+    p.result = {
+      path: `${ini.id}/${uid()}.${imageExtension(file.type)}`,
+      url: URL.createObjectURL(file),
+    }
+  },
+
+  detachTaskImage: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.tasks.some((t) => t.id === p.taskId)),
+      'Task not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) {
+      deny('Only the initiative lead or an admin can remove task images.')
+    }
+    const task = need(ini.tasks.find((t) => t.id === p.taskId), 'Task not found.')
+    // Mirrors detach_task_image: the bytes go only once the text stops showing them.
+    if (String(p.objectPath ?? '') && task.description.includes(String(p.objectPath))) {
+      deny('The task description still shows this image; remove it there first.')
+    }
+    audit(d, me, 'task.image.detach', `Removed a task image from "${task.title}"`)
+  },
+
   setCoverColor: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
     if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the lead or admin can set the cover.')
     ini.coverFallbackColor = p.color || undefined
+  },
+
+  setCoverPosition: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the lead or admin can reposition the cover.')
+    const x=Number(p.x),y=Number(p.y)
+    if(!Number.isInteger(x)||!Number.isInteger(y)||x<0||x>100||y<0||y>100) deny('Cover position must be between 0 and 100.')
+    ini.coverPositionX=x;ini.coverPositionY=y
   },
 
   clearCover: ({ d, actor }, p) => {
@@ -752,6 +832,9 @@ const handlers: Record<string, Handler> = {
     if (assigneeId && !ini.members.includes(assigneeId)) deny('Assignee must be on the initiative team.')
     const status = String(p.status ?? 'planned')
     if (!['planned', 'pending', 'finished'].includes(status)) deny('Invalid task status.')
+    if (String(p.description ?? '').length > TASK_DETAILS_MAX) {
+      deny(`Task description must be at most ${TASK_DETAILS_MAX} characters.`)
+    }
     ini.tasks.push({ id: uid(), title, description: String(p.description ?? '').trim(),
       status: status as 'planned'|'pending'|'finished', assigneeId,
       dueAt: p.dueAt ? String(p.dueAt) : undefined })

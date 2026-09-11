@@ -4,7 +4,7 @@ export const HP_MAX = 100
 export const REVIEW_COMPLETION_HP = 4
 export const MISSED_REVIEW_HP = -10
 
-export type AccountRole = 'member' | 'research-admin' | 'operations-admin'
+export type AccountRole = 'member' | 'research-admin' | 'operations-admin' | 'admin'
 export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
 
 export interface Account {
@@ -195,6 +195,6 @@ export function canViewInternalAccount(viewer: Account, target: Account): boolea
 }
 
 export function canApproveAccount(actor: Account, target: Account): boolean {
-  const isAdmin = actor.role === 'research-admin' || actor.role === 'operations-admin'
+  const isAdmin = actor.role === 'research-admin' || actor.role === 'operations-admin' || actor.role === 'admin'
   return actor.status === 'approved' && isAdmin && actor.id !== target.id && target.status === 'pending'
 }

@@ -30,7 +30,7 @@
 import type {
   Data, Person, Initiative, DocumentRecord, Thread, Request,
 } from './model'
-import { seed, uid, normalizeProfileDetails, profileDetailsError } from './model'
+import { seed, uid, imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 import type { LedgerEvent } from './domain'
 import { appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries } from './domain'
 
@@ -84,12 +84,12 @@ export function sanitize(html: string): string {
     .slice(0, 20_000)
 }
 
-function encodeProposal(category: string, abstract: string, plan: string): string {
-  return JSON.stringify({ category, abstract, plan })
+function encodeProposal(category: string, abstract: string, plan: string, motivation: string): string {
+  return JSON.stringify({ category, abstract, plan, motivation })
 }
 
 /** Decode a proposal Request.body written by createProposal / the live adapter. */
-export function readProposal(body: string): { category: string; abstract: string; plan: string } {
+export function readProposal(body: string): { category: string; abstract: string; plan: string; motivation: string } {
   try {
     const o = JSON.parse(body)
     if (o && typeof o.abstract === 'string') {
@@ -97,12 +97,13 @@ export function readProposal(body: string): { category: string; abstract: string
         category: String(o.category || 'General'),
         abstract: o.abstract,
         plan: String(o.plan || ''),
+        motivation: String(o.motivation || ''),
       }
     }
   } catch {
     /* legacy / plain-text body */
   }
-  return { category: 'General', abstract: String(body ?? ''), plan: '' }
+  return { category: 'General', abstract: String(body ?? ''), plan: '', motivation: '' }
 }
 
 function normalize(d: Data): Data {
@@ -180,7 +181,7 @@ function need<T>(value: T | null | undefined, message: string): T {
 
 const isApproved = (p: Person | null | undefined) => !!p && p.status === 'approved'
 const hasRole = (p: Person | null | undefined, role: string) =>
-  isApproved(p) && !!p && p.roles.includes(role)
+  isApproved(p) && !!p && (p.roles.includes(role) || p.roles.includes('admin'))
 const isResearch = (p: Person | null | undefined) => hasRole(p, 'research')
 const isOperations = (p: Person | null | undefined) => hasRole(p, 'operations')
 const isAdmin = (p: Person | null | undefined) => isResearch(p) || isOperations(p)
@@ -212,11 +213,14 @@ const handlers: Record<string, Handler> = {
     const abstract = String(p.abstract ?? '').trim()
     const plan = String(p.plan ?? '').trim()
     const category = String(p.category ?? '').trim() || 'General'
+    const motivation = String(p.motivation ?? '').trim()
     const status = p.status === 'draft' ? 'draft' : 'submitted'
     if (title.length < 3) deny('Give your initiative a title.')
     if (status === 'submitted') {
       if (abstract.length < 20) deny('Write a short abstract (at least 20 characters).')
       if (plan.length < 20) deny('Describe how the team would execute this (at least 20 characters).')
+      const wordCount = motivation === '' ? 0 : motivation.split(/\s+/).length
+      if (wordCount < 150) deny(`The motivation statement must be at least 150 words (currently ${wordCount}).`)
     }
     if (p.id) {
       const existing = need(
@@ -228,7 +232,7 @@ const handlers: Record<string, Handler> = {
         deny('This proposal is already with Research and can no longer be edited.')
       }
       existing.title = title
-      existing.body = encodeProposal(category, abstract, plan)
+      existing.body = encodeProposal(category, abstract, plan, motivation)
       existing.status = status
       if (status === 'submitted') existing.feedback = undefined
       audit(d, me, status === 'draft' ? 'proposal.save' : 'proposal.submit',
@@ -240,7 +244,7 @@ const handlers: Record<string, Handler> = {
       kind: 'proposal',
       userId: me.id,
       title,
-      body: encodeProposal(category, abstract, plan),
+      body: encodeProposal(category, abstract, plan, motivation),
       status,
     }
     d.requests.unshift(req)
@@ -271,7 +275,7 @@ const handlers: Record<string, Handler> = {
       return
     }
     if (decision === 'approved') {
-      const { category, abstract } = readProposal(req.body)
+      const { category, abstract, motivation } = readProposal(req.body)
       const initiative: Initiative = {
         id: uid(),
         title: req.title,
@@ -280,6 +284,7 @@ const handlers: Record<string, Handler> = {
         members: [req.userId],
         status: 'active',
         category,
+        motivation,
         hp: HP_START,
         tasks: [],
       }
@@ -593,6 +598,95 @@ const handlers: Record<string, Handler> = {
       `Marked "${task.title}" ${task.done ? 'done' : 'not done'} on "${ini.title}" [${ini.id}]`)
   },
 
+  uploadCover: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the lead or admin can set the cover.')
+    const file = p.file as File
+    const problem = imageFileError(file)
+    if (problem) deny(problem)
+    ini.coverUrl = URL.createObjectURL(file)
+    // The stored key is derived from the validated type, never the file name -
+    // the same rule the live adapter and the storage policies rely on.
+    ini.coverObjectPath = `${ini.id}/${uid()}.${imageExtension(file.type)}`
+  },
+
+  uploadRmImage: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
+    if (doc.kind !== 'rm') deny('Images attach to reporting memos only.')
+    if (!isResearch(me) && !d.initiatives.some((i) => i.id === doc.initiativeId
+      && (i.leadId === me.id || i.members.includes(me.id)))) {
+      deny('Only the memo team or Research can attach images.')
+    }
+    const file = p.file as File
+    const problem = imageFileError(file)
+    if (problem) deny(problem)
+    p.result = {
+      path: `${doc.initiativeId}/${uid()}.${imageExtension(file.type)}`,
+      url: URL.createObjectURL(file),
+    }
+  },
+
+  setCoverColor: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the lead or admin can set the cover.')
+    ini.coverFallbackColor = p.color || undefined
+  },
+
+  clearCover: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the lead or admin can set the cover.')
+    ini.coverUrl = undefined
+    ini.coverObjectPath = undefined
+  },
+
+  // Mirrors revise_rm in supabase/migrations/202609100012_rm_revision_and_media.sql:
+  // append-only, Research only, and no HP / obligation / review / role change.
+  reviseRm: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isResearch(me)) deny('Research required.')
+    const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
+    if (doc.kind !== 'rm') deny('Only reporting memos can be revised here.')
+    if (doc.status !== 'submitted') deny('Only submitted memos can be revised.')
+    const reason = String(p.reason || '').trim()
+    if (!reason) deny('A revision reason is required.')
+
+    // Every stored version is preserved, so the token is the highest version
+    // that EXISTS - not doc.version, which a historical memo keeps at 1.
+    if (doc.versions.length === 0) {
+      doc.versions.push({ version: doc.version, body: doc.body, at: doc.submittedAt || nowIso() })
+    }
+    const lastVersion = Math.max(...doc.versions.map((v) => v.version))
+    if (p.expectedVersion !== lastVersion) {
+      deny('Revision conflict: reload the latest version before revising.')
+    }
+
+    if (doc.historical) {
+      if (p.authorId) deny('Historical memos keep a null account author; use source author text.')
+      if (p.sourceAuthor) doc.authorName = p.sourceAuthor
+    } else {
+      if (p.sourceAuthor) deny('Source author applies only to historical memos.')
+      if (p.authorId) {
+        const a = need(d.people.find((x) => x.id === p.authorId), 'Author not found.')
+        if (a.status !== 'approved') deny('New author must be approved.')
+        doc.authorId = p.authorId
+      }
+    }
+
+    const vNext = lastVersion + 1
+    doc.body = p.body || p.content?.html || doc.body
+    doc.title = p.title || p.content?.title || doc.title
+    doc.versions.push({ version: vNext, body: doc.body, at: nowIso() })
+    // A historical memo keeps version 1 as its canonical submitted version and
+    // its imported v1 row untouched; the revision is an additional version.
+    if (!doc.historical) doc.version = vNext
+    audit(d, me, 'rm_revised',
+      `Revised "${doc.title}" v${vNext}${doc.historical ? ' (historical; v1 retained)' : ''} - ${reason}`)
+  },
+
   addTask: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
@@ -694,7 +788,7 @@ const handlers: Record<string, Handler> = {
     if (!isOperations(me)) deny('Only Operations can change roles.')
     const target = need(d.people.find((x) => x.id === p.userId), 'Person not found.')
     if (target.id === me.id) deny('You cannot change your own roles.')
-    const role = p.role === 'research' || p.role === 'operations' ? p.role : ''
+    const role = p.role === 'research' || p.role === 'operations' || p.role === 'admin' ? p.role : ''
     if (!role) deny('Pick a valid role.')
     if (!isApproved(target)) deny('Approve the account before granting a role.')
     const grant = !!p.grant

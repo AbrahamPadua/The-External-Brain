@@ -1,6 +1,6 @@
 import { supabase } from './client'
 import type { Data, DocumentRecord, ProfileDetails } from './model'
-import { normalizeProfileDetails, profileDetailsError } from './model'
+import { imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
 const SIGNUP_KEY='openlabs:signup:pending:v1'
 /**
@@ -31,6 +31,68 @@ export async function rpc(name:string,args:Record<string,unknown>={}){
 async function rows(table:string){const {data,error}=await supabase!.from(table).select('*');if(error)throw new Error(`${table}: ${error.message}`);return data??[]}
 const html=(content:any)=>typeof content?.html==='string'?content.html:'<p>Imported content is available in the source record.</p>'
 const title=(content:any,fallback:string)=>content?.title||fallback
+/**
+ * Inline images.
+ *
+ * The durable reference to an uploaded image is its storage object path, held
+ * in `data-object-path` and written into document content. A `src` is only ever
+ * a signed URL minted for one render and it expires, so it is stripped from
+ * everything on its way into the database and re-derived on the way out. That
+ * is what keeps an OLD version's images resolvable: the version rows keep the
+ * path, and each load signs it again for whoever is currently allowed to read
+ * it.
+ */
+const IMAGES_BUCKET = 'initiative-images'
+const COVERS_BUCKET = 'initiative-covers'
+const SIGNED_URL_TTL = 3600
+
+// The three rewriters below are exported only so src/image-refs.test.ts can
+// regression-test the real implementation rather than a copy of it. They are
+// pure apart from needing a DOM, and nothing outside this module calls them.
+const parseBody = (htmlStr: string) => new DOMParser().parseFromString(htmlStr, 'text/html')
+/** Object paths a stored body refers to. */
+export const objectPathsIn = (htmlStr: string): string[] => {
+  if (!htmlStr.includes('data-object-path')) return []
+  return Array.from(parseBody(htmlStr).querySelectorAll('img[data-object-path]'))
+    .map(img => img.getAttribute('data-object-path') || '').filter(Boolean)
+}
+/**
+ * One batched signing round trip per bucket per load, instead of one per image
+ * per version. A path the caller may not read simply yields no URL: the image
+ * renders blank rather than leaking a link, and the rest of the page still
+ * resolves.
+ */
+async function signPaths(bucket: string, paths: string[]): Promise<Map<string, string>> {
+  const urls = new Map<string, string>()
+  const unique = [...new Set(paths)].filter(Boolean)
+  if (!unique.length) return urls
+  const { data } = await supabase!.storage.from(bucket).createSignedUrls(unique, SIGNED_URL_TTL)
+  for (const entry of data ?? []) {
+    const path = (entry as { path?: string | null }).path
+    if (path && entry.signedUrl && !entry.error) urls.set(path, entry.signedUrl)
+  }
+  return urls
+}
+/** Attach freshly signed URLs to one stored body for this render only. */
+export const applyImageUrls = (htmlStr: string, urls: Map<string, string>) => {
+  if (!htmlStr.includes('data-object-path')) return htmlStr
+  const doc = parseBody(htmlStr)
+  doc.querySelectorAll('img[data-object-path]').forEach(img => {
+    const path = img.getAttribute('data-object-path')
+    img.setAttribute('src', (path && urls.get(path)) || '')
+  })
+  return doc.body.innerHTML
+}
+/**
+ * Canonical content never carries a signed URL. Every write path runs through
+ * this, so an expiring link can never end up as the persisted reference.
+ */
+export const stripSignedUrls = (htmlStr: string) => {
+  if (!htmlStr.includes('data-object-path')) return htmlStr
+  const doc = parseBody(htmlStr)
+  doc.querySelectorAll('img[data-object-path]').forEach(img => { img.setAttribute('src', '') })
+  return doc.body.innerHTML
+}
 export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
  if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state}
@@ -46,31 +108,71 @@ export async function loadLive(userId:string|null):Promise<Data>{
  }
  const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications'].map(rows))
  state.people.forEach(p=>p.roles=roles.filter(r=>r.user_id===p.id&&!r.revoked_at).map(r=>r.role))
- if(state.people.find(p=>p.id===userId)?.roles.some(r=>r==='operations'||r==='research')){
+ if(state.people.find(p=>p.id===userId)?.roles.some(r=>r==='operations'||r==='research'||r==='admin')){
  const emails=await rpc('admin_account_emails') as {user_id:string;email:string|null}[]
  const byId=new Map(emails.map(e=>[e.user_id,e.email??'']))
  state.people.forEach(p=>p.email=byId.get(p.id)??'')
  }
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,done:t.status==='done'})),hp:await rpc('hp_balance',{i:i.id})})))
+ const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,done:t.status==='done'})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
  state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
- state.documents=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const latest=vs.at(-1);const draft=drafts.find(v=>v.document_id===d.id);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(draft?.content??latest?.content,d.kind==='rm'?'Weekly RM':'Peer review'),authorId:d.author_id,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:html(draft?.content??latest?.content),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at,targetId:d.reviewed_document_id,obligationId:d.obligation_id,draftRevision:draft?.revision,versions:vs.map(v=>({version:v.version_number,body:html(v.content),at:v.submitted_at}))} as DocumentRecord})
+ // Two passes: collect every object path referenced by any body or any stored
+ // version, sign them all in one round trip, then render. Old versions keep
+ // their images because their own paths are signed here too.
+ const shaped=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const draft=drafts.find(v=>v.document_id===d.id);const content=draft?.content??vs.at(-1)?.content??{};return {d,vs,draft,content,bodyHtml:html(content),versionHtml:vs.map(v=>html(v.content))}})
+ const imageUrls=await signPaths(IMAGES_BUCKET,shaped.flatMap(s=>[...objectPathsIn(s.bodyHtml),...s.versionHtml.flatMap(objectPathsIn)]))
+ state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(content,d.kind==='rm'?'Weekly RM':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourcePeriod:typeof content?.source_period==='string'?content.source_period:undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?content.source_week:undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,obligationId:d.obligation_id,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
  state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
- state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
+ state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
  state.audit=audit.map(a=>({id:a.id,at:a.created_at,actor:a.actor_id,action:a.action,detail:JSON.stringify(a.detail)}));
  state.notifications=notifs.map(n=>({id:n.id,userId:n.user_id,kind:n.kind,payload:n.payload||{},createdAt:n.created_at,readAt:n.read_at}));
  return state
+}
+/**
+ * Upload one image and return its object path. The key is
+ * `{initiative}/{uuid}.{ext}` where the extension comes from the already
+ * validated MIME type - the supplied file name never reaches the storage key,
+ * so it cannot introduce a path separator, a `..` segment or URL punctuation.
+ */
+async function uploadImage(bucket:string,initiativeId:string,file:File):Promise<string>{
+ const problem=imageFileError(file)
+ if(problem)throw new Error(problem)
+ if(!initiativeId)throw new Error('An initiative is required before uploading.')
+ const path=`${initiativeId}/${crypto.randomUUID()}.${imageExtension(file.type)}`
+ const {error}=await supabase!.storage.from(bucket).upload(path,file,{contentType:file.type,upsert:false})
+ if(error)throw new Error(`Upload failed: ${error.message}`)
+ return path
+}
+/**
+ * Register a freshly uploaded object, and remove it again if registration
+ * fails. `isOurs` is re-checked first: a failure response can still follow a
+ * committed write, and another editor may have replaced the reference in the
+ * meantime, so the object is only deleted when the database confirms nothing
+ * points at it.
+ */
+async function registerOrRollBack<T>(bucket:string,path:string,register:()=>Promise<T>,isOurs:()=>Promise<boolean>):Promise<T>{
+ try{
+  return await register()
+ }catch(e){
+  let orphaned=true
+  try{orphaned=!await isOurs()}catch{/* cannot confirm: keep the bytes */orphaned=false}
+  if(orphaned)await supabase!.storage.from(bucket).remove([path]).catch(()=>{})
+  throw e
+ }
 }
 export async function liveAction(data:Data,_userId:string|null,action:string,p:any){
  const id=p.id??p.documentId??p.requestId??p.userId??p.initiativeId
  const doc=data.documents.find(d=>d.id===(p.documentId??p.id)) as (DocumentRecord & {obligationId:string;draftRevision?:number})|undefined
  const obligation=data.obligations.find(o=>o.id===(p.obligationId??doc?.obligationId))
- const content={html:p.body??doc?.body??'<p></p>',title:p.title??doc?.title??'Weekly update',blocks:[]}
+ // Built once, already stripped: no write path can accidentally persist the
+ // signed URL that the editor was displaying.
+ const content={html:stripSignedUrls(p.body??doc?.body??'<p></p>'),title:p.title??doc?.title??'Weekly update',blocks:[]}
  switch(action){
  case 'decideAccount':return rpc('decide_account',{p_user:p.userId??id,p_status:p.status,p_reason:p.reason||'Reviewed by administrator'})
  // Self-only by construction: update_my_profile takes no target user and writes
  // the auth.uid() row; account status, roles and the sign-in email are untouched.
  case 'updateProfile':{const d=normalizeProfileDetails(p);const problem=profileDetailsError(d);if(problem)throw new Error(problem);return rpc('update_my_profile',{p_display_name:d.name,p_major:d.major,p_interests:d.interests})}
- case 'createProposal':return rpc('save_proposal',{p_title:p.title,p_summary:p.body??p.abstract??'',p_content:{html:p.plan??'',category:p.category},p_submit:p.status!=='draft',p_id:p.id??null})
+ case 'createProposal':return rpc('save_proposal',{p_title:p.title,p_summary:p.body??p.abstract??'',p_content:{html:p.plan??'',category:p.category,motivation:p.motivation??''},p_submit:p.status!=='draft',p_id:p.id??null})
  case 'decideProposal':return rpc('decide_proposal',{p_proposal:p.requestId??id,p_status:p.status??p.decision,p_reason:p.feedback??p.reason??''})
  case 'requestJoin':return rpc('request_join',{p_initiative:p.initiativeId??id,p_message:p.body??p.message??''})
  case 'decideJoin':return rpc('decide_join_request',{p_request:p.requestId??id,p_approve:p.approve??(p.status??p.decision)==='approved',p_reason:p.feedback??p.reason??''})
@@ -94,6 +196,34 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  case 'openCycle':return rpc('open_cycle',{p_monday:p.monday,p_break:p.isBreak??false})
  case 'evaluateDeadlines':return rpc('evaluate_due_obligations')
  case 'readNotification':return rpc('read_notification',{p_id:p.id})
+ // expectedVersion is the snapshot the form was opened with, never a value
+ // re-read after a background refresh; revise_rm rejects a stale one.
+ case 'reviseRm': return rpc('revise_rm',{p_document:p.documentId,p_content:content,p_reason:p.reason,p_author:p.authorId||null,p_source_author:p.sourceAuthor||null,p_expected_version:p.expectedVersion})
+ case 'uploadCover':{
+   const f=p.file as File
+   const path=await uploadImage(COVERS_BUCKET,p.initiativeId,f)
+   return registerOrRollBack(COVERS_BUCKET,path,
+     ()=>rpc('set_initiative_cover',{p_initiative:p.initiativeId,p_object_path:path,p_mime:f.type,p_bytes:f.size}),
+     // Only clean up an object nothing points at. A failure response can still
+     // follow a committed write, and another lead may have set a different
+     // cover meanwhile - in both cases the stored path is not ours to delete.
+     async()=>{const {data}=await supabase!.from('initiatives').select('cover_object_path').eq('id',p.initiativeId).maybeSingle();return data?.cover_object_path===path})
+ }
+ case 'setCoverColor': return rpc('set_initiative_cover_color',{p_initiative:p.initiativeId,p_color:p.color||null})
+ case 'clearCover': return rpc('clear_initiative_cover',{p_initiative:p.initiativeId})
+ case 'uploadRmImage':{
+   const f=p.file as File
+   // The folder must be the document's own initiative; attach_rm_image checks
+   // the same thing, so a mismatched caller hint rolls the upload back.
+   const path=await uploadImage(IMAGES_BUCKET,doc?.initiativeId??p.initiativeId,f)
+   await registerOrRollBack(IMAGES_BUCKET,path,
+     ()=>rpc('attach_rm_image',{p_document:p.documentId,p_object_path:path,p_mime:f.type,p_bytes:f.size}),
+     async()=>{const {data}=await supabase!.from('document_attachments').select('id').eq('object_path',path).maybeSingle();return !!data})
+   const {data}=await supabase!.storage.from(IMAGES_BUCKET).createSignedUrl(path,SIGNED_URL_TTL)
+   // The path is the durable reference; the URL is only for this editing session.
+   p.result={path,url:data?.signedUrl||''}
+   return
+ }
  default:throw new Error(`Unsupported action: ${action}`)
  }
 }

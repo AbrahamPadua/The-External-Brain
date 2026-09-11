@@ -62,8 +62,8 @@
  *       Research only. Any non-active status waives outstanding obligations.
  *   adjustHp         { initiativeId, delta, reason }
  *       Research only. The manual lever when HP reaches 0.
- *   setRole          { userId, role:'research'|'operations', grant:boolean }
- *       Operations only, never self.
+ *   setRole          { userId, role:'research'|'operations'|'admin', grant:boolean }
+ *       Operations or Admin only, never self. Admin satisfies all role checks.
  *   openCycle        { monday, isBreak }
  *   evaluateDeadlines {}
  *   setPolicy        { penalty, reward }
@@ -86,11 +86,12 @@ import { Editor } from './Editor'
 import { readProposal, sanitize } from './demo'
 import { formatLosAngelesLocal, parseLosAngelesLocal } from './domain'
 import {
+  IMAGE_MIME_TYPES, imageFileError,
   INTERESTS_MAX, MAJOR_MAX, NAME_MAX, normalizeProfileDetails, profileDetailsError,
 } from './model'
 import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
-  FlaskConical, HeartPulse, House, IdCard, Inbox, LogIn, LogOut, MessageSquare,
+  FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
   Plus, Save, Send, ShieldCheck, Sparkles, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
@@ -123,6 +124,7 @@ type Ctx = {
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
   onSignOut: () => Promise<void>
+  uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
 }
 
 // --- small helpers --------------------------------------------------------
@@ -173,6 +175,16 @@ function statusTone(s: string): string {
     case 'draft': return 'info'
     default: return 'muted'
   }
+}
+
+function accountStatusLabel(p: Pick<Person, 'status' | 'roles'>): string {
+  if (p.status === 'approved') {
+    if (p.roles.includes('admin')) return 'Admin'
+    if (p.roles.includes('operations')) return 'Operations'
+    if (p.roles.includes('research')) return 'Research'
+    return 'Member'
+  }
+  return p.status
 }
 
 function versionsOf(doc: DocumentRecord): { version: number; body: string; at: string }[] {
@@ -301,7 +313,7 @@ function TopBar({ ctx }: { ctx: Ctx }) {
         {ctx.me ? (
           <>
             <a href="#/profile"><strong>{nameOf(ctx.me)}</strong></a>
-            <Pill tone={statusTone(ctx.me.status)}>{ctx.me.status}</Pill>
+            <Pill tone={statusTone(ctx.me.status)}>{accountStatusLabel(ctx.me)}</Pill>
             {ctx.me.roles.map((r) => <Pill key={r} tone="info">{r}</Pill>)}
           </>
         ) : (
@@ -320,7 +332,7 @@ function TopBar({ ctx }: { ctx: Ctx }) {
               <option value="">Signed-out visitor</option>
               {people.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {nameOf(p)} - {p.status}{p.roles.length ? ` (${p.roles.join(', ')})` : ''}
+                  {nameOf(p)} - {accountStatusLabel(p)}{p.roles.length ? ` (${p.roles.join(', ')})` : ''}
                 </option>
               ))}
             </select>
@@ -632,6 +644,79 @@ function JoinForm({ ctx, initiativeId }: { ctx: Ctx; initiativeId: string }) {
     </form>
   )
 }
+function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  const [open, setOpen] = useState(false)
+  const [expectedColor, setExpectedColor] = useState(ini.coverFallbackColor || '')
+  const [color, setColor] = useState(ini.coverFallbackColor || '')
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if ((ini.coverFallbackColor || '') !== expectedColor) {
+      if (!dirty) {
+        setColor(ini.coverFallbackColor || '')
+        setExpectedColor(ini.coverFallbackColor || '')
+      }
+    }
+  }, [ini.coverFallbackColor, expectedColor, dirty])
+
+  const conflict = open && dirty && expectedColor !== (ini.coverFallbackColor || '')
+  
+  if (!open) {
+    return (
+      <button className="btn sm ghost" onClick={() => {
+        setExpectedColor(ini.coverFallbackColor || '')
+        setColor(ini.coverFallbackColor || '')
+        setDirty(false)
+        setOpen(true)
+      }}>
+        <Image size={14} /> Manage cover
+      </button>
+    )
+  }
+  
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <h4>Manage cover</h4>
+      
+      {conflict ? (
+        <p style={{ color: '#dc2626', marginBottom: 12, marginTop: 8, fontWeight: 'bold', fontSize: 14 }}>
+          Conflict: The fallback color was changed by another user.
+        </p>
+      ) : null}
+
+      <div className="stack" style={{ marginTop: 12 }}>
+        {/* `accept` is only a picker hint, so the allowlist and the size bounds
+            are re-checked here before anything is uploaded. The back end checks
+            them again in set_initiative_cover. */}
+        <input type="file" accept={IMAGE_MIME_TYPES.join(',')} onChange={async (e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (!file) return
+          const problem = imageFileError(file)
+          if (problem) return alert(problem)
+          const ok = await ctx.run('uploadCover', { initiativeId: ini.id, file }, 'Cover uploaded.')
+          if (ok) setOpen(false)
+        }} disabled={ctx.busy} />
+        
+        <div className="row" style={{ marginTop: 8 }}>
+          <input type="color" value={color || '#cccccc'} onChange={(e) => { setColor(e.target.value); setDirty(true) }} disabled={ctx.busy || conflict} />
+          <button type="button" className="btn sm" disabled={ctx.busy || conflict || color === ini.coverFallbackColor} onClick={async () => {
+             const ok = await ctx.run('setCoverColor', { initiativeId: ini.id, color }, 'Fallback color set.')
+             if (ok) setOpen(false)
+          }}>Set fallback color</button>
+        </div>
+        
+        <div className="btn-row" style={{ marginTop: 8 }}>
+          <button type="button" className="btn sm" disabled={ctx.busy || (!ini.coverObjectPath && !ini.coverFallbackColor)} onClick={async () => {
+             const ok = await ctx.run('clearCover', { initiativeId: ini.id }, 'Cover cleared.')
+             if (ok) setOpen(false)
+          }}>Clear cover</button>
+          <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function AddTaskForm({ ctx, initiativeId }: { ctx: Ctx; initiativeId: string }) {
   const [title, setTitle] = useState('')
@@ -665,17 +750,19 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
     seeded && CATEGORIES.includes(seeded.category) ? seeded.category : CATEGORIES[0])
   const [abstract, setAbstract] = useState(seeded?.abstract ?? '')
   const [plan, setPlan] = useState(seeded?.plan ?? '')
+  const [motivation, setMotivation] = useState(seeded?.motivation ?? '')
 
   const send = async (status: 'draft' | 'submitted') => {
     const ok = await ctx.run(
       'createProposal',
-      { id: existing?.id, title: title.trim(), category, abstract: abstract.trim(), plan: plan.trim(), status },
+      { id: existing?.id, title: title.trim(), category, abstract: abstract.trim(), plan: plan.trim(), motivation: motivation.trim(), status },
       status === 'draft' ? 'Draft saved.' : 'Proposal submitted for Research review.',
     )
     if (ok) go('#/proposals')
   }
 
-  const ready = title.trim().length >= 3 && abstract.trim().length >= 20 && plan.trim().length >= 20
+  const wordCount = motivation.trim() === '' ? 0 : motivation.trim().split(/\s+/).length
+  const ready = title.trim().length >= 3 && abstract.trim().length >= 20 && plan.trim().length >= 20 && wordCount >= 150
   return (
     <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); send('submitted') }}>
       <h3>{existing ? 'Edit proposal' : 'Propose an initiative'}</h3>
@@ -700,6 +787,12 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
         <textarea
           value={plan} disabled={ctx.busy} onChange={(e) => setPlan(e.target.value)}
           style={{ minHeight: 120 }}
+        />
+      </Field>
+      <Field label="Motivation" hint={`Why is this important? (150+ words required, currently ${wordCount})`}>
+        <textarea
+          value={motivation} disabled={ctx.busy} onChange={(e) => setMotivation(e.target.value)}
+          style={{ minHeight: 200 }}
         />
       </Field>
       <div className="btn-row">
@@ -896,7 +989,13 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
         />
       </Field>
       <Field label="Body">
-        <Editor body={body} onChange={(html) => { dirty.current = true; setBody(html) }} />
+        <Editor body={body} onChange={(html) => { dirty.current = true; setBody(html) }} onUploadImage={(file) => {
+          if (!doc.id) {
+            alert('Please save the draft first.')
+            return Promise.resolve(null)
+          }
+          return ctx.uploadRmImage(doc.id, ini.id, file)
+        }} />
       </Field>
       <div className="btn-row">
         <button
@@ -1023,9 +1122,9 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
   const threads = ctx.data.threads
     .filter((t) => t.documentId === doc.id && t.version === (shown?.version ?? doc.version))
   const target = doc.targetId ? ctx.data.documents.find((x) => x.id === doc.targetId) : null
-  const canRevise = doc.kind === 'rm'
+  const canRevise = !doc.historical && (doc.kind === 'rm'
     ? ini.leadId === ctx.userId
-    : doc.authorId === ctx.userId
+    : doc.authorId === ctx.userId)
 
   return (
     <div>
@@ -1035,15 +1134,17 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             <h3 style={{ marginBottom: 4 }}>{doc.title}</h3>
             <div className="row">
               <Pill tone="muted">{doc.kind === 'rm' ? 'reporting memo' : 'manual review'}</Pill>
+              {doc.historical ? <Pill tone="info">historical record</Pill> : null}
               <Pill tone={statusTone(doc.status)}>{doc.status}</Pill>
-              <span className="muted">by {ctx.personName(doc.authorId)}</span>
-              <span className="muted">{fmtDateTime(doc.submittedAt)}</span>
+              <span className="muted">by {doc.authorName ?? ctx.personName(doc.authorId)}</span>
+              <span className="muted">{doc.submittedAt ? fmtDateTime(doc.submittedAt) : doc.sourceWeek ? `Week: ${doc.sourceWeek}` : doc.sourcePeriod || 'Date unavailable'}</span>
             </div>
             {target ? (
               <p className="muted" style={{ marginTop: 6 }}>
                 Reviewing <a href={`#/document/${target.id}`}>{target.title}</a>
               </p>
             ) : null}
+            {doc.historical ? <p className="muted" style={{ marginTop: 6 }}>Imported historical record — {doc.sourceWeek ?? doc.sourcePeriod ?? 'Date unavailable'}. {ctx.isResearch ? 'Research may revise if needed.' : 'It is preserved as submitted and cannot be revised by the author.'}</p> : null}
           </div>
           {versions.length > 1 ? (
             <Field label="Version">
@@ -1072,6 +1173,11 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             </button>
           </div>
         ) : null}
+        {(ctx.isResearch && doc.kind === 'rm') ? (
+          // Keyed so moving to another memo discards the open form outright
+          // rather than re-pointing it at a document it was not seeded from.
+          <ResearchReviseRmForm key={doc.id} ctx={ctx} doc={doc} />
+        ) : null}
       </div>
 
       <div className="section" style={{ marginTop: 20 }}>
@@ -1089,6 +1195,129 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
       <p className="muted">
         <a href={`#/initiative/${ini.id}/documents`}><ArrowLeft size={13} /> Back to {ini.title}</a>
       </p>
+    </div>
+  )
+}
+
+/**
+ * Research revision of a reporting memo.
+ *
+ * Everything the revision will send is captured in ONE snapshot taken when the
+ * form opens: the document it belongs to, the version token, and the author /
+ * title / body it was seeded from. Nothing in here ever re-reads `doc` for a
+ * value it is going to submit, because `doc` is replaced by the 30s background
+ * refresh while the form sits open. Reading the refreshed version token at
+ * submit time would silently satisfy the optimistic-concurrency check in
+ * revise_rm and overwrite a version this editor never saw.
+ *
+ * `version` is the highest EXISTING version number, which is what revise_rm
+ * compares against - not documents.submitted_version_number, which a historical
+ * memo deliberately keeps at 1.
+ */
+type ReviseDraft = {
+  docId: string
+  version: number
+  title: string
+  body: string
+  reason: string
+  authorId: string
+  sourceAuthor: string
+}
+
+function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
+  const [draft, setDraft] = useState<ReviseDraft | null>(null)
+  const allVersions = versionsOf(doc)
+  const lastVersion = allVersions[allVersions.length - 1] || { version: doc.version, body: doc.body }
+
+  // A snapshot only remains usable while it still describes the document on
+  // screen at the version it was taken from.
+  const stale = !!draft && (draft.docId !== doc.id || draft.version !== lastVersion.version)
+  const patch = (fields: Partial<ReviseDraft>) => setDraft((d) => (d ? { ...d, ...fields } : d))
+
+  if (!draft) {
+    return (
+      <div className="btn-row" style={{ marginTop: 12 }}>
+        <button className="btn sm ghost" onClick={() => setDraft({
+          docId: doc.id,
+          version: lastVersion.version,
+          title: doc.title,
+          body: lastVersion.body,
+          reason: '',
+          authorId: doc.authorId,
+          sourceAuthor: doc.authorName || '',
+        })}>Research Revise RM</button>
+      </div>
+    )
+  }
+
+  const { version: expectedVersion, title, body, reason, authorId, sourceAuthor } = draft
+  const conflict = stale
+  const close = () => setDraft(null)
+
+  return (
+    <div className="card" style={{ marginTop: 12, border: '1px solid #f87171' }}>
+      <div className="between">
+        <h4 style={{ color: '#dc2626' }}>Research Revise RM</h4>
+        <Pill tone="warn">Research Only</Pill>
+      </div>
+      <p className="muted" style={{ marginBottom: 16 }}>
+        Directly revise this RM (including historical ones) without returning it to the author. Expected version: {expectedVersion}.
+      </p>
+      {conflict ? (
+        <p style={{ color: '#dc2626', marginBottom: 16, fontWeight: 'bold' }}>
+          {draft.docId !== doc.id
+            ? 'This form belongs to another memo. Cancel and reopen it here.'
+            : `Conflict! A newer version (v${lastVersion.version}) was submitted. Please cancel and review.`}
+        </p>
+      ) : null}
+
+      <div className="stack">
+        <Field label="Title">
+           <input type="text" value={title} onChange={e => patch({ title: e.target.value })} disabled={ctx.busy || conflict} />
+        </Field>
+
+        {doc.historical ? (
+          <Field label="Source Author (Historical)">
+             <input type="text" value={sourceAuthor} onChange={e => patch({ sourceAuthor: e.target.value })} disabled={ctx.busy || conflict} />
+          </Field>
+        ) : (
+          <Field label="Author">
+             <select value={authorId} onChange={e => patch({ authorId: e.target.value })} disabled={ctx.busy || conflict}>
+               {ctx.data.people.filter(p => p.status === 'approved').map(p => (
+                 <option key={p.id} value={p.id}>{nameOf(p)}</option>
+               ))}
+             </select>
+          </Field>
+        )}
+
+        <Field label="Body">
+          <Editor body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
+            onUploadImage={(file) => ctx.uploadRmImage(draft.docId, doc.initiativeId, file)} />
+        </Field>
+
+        <Field label="Revision Reason (Required)">
+          <input type="text" value={reason} onChange={e => patch({ reason: e.target.value })} disabled={ctx.busy || conflict} placeholder="Why is Research revising this RM?" />
+        </Field>
+
+        <div className="btn-row" style={{ marginTop: 16 }}>
+          <button className="btn sm" disabled={ctx.busy || conflict || !reason.trim()} onClick={async () => {
+            // Submitted straight from the snapshot: the document id and the
+            // version token are the ones this editor actually saw.
+            if (stale) return
+            const ok = await ctx.run('reviseRm', {
+              documentId: draft.docId,
+              title,
+              body,
+              reason: reason.trim(),
+              authorId: doc.historical ? undefined : authorId,
+              sourceAuthor: doc.historical ? sourceAuthor : undefined,
+              expectedVersion
+            }, 'RM Revised.')
+            if (ok) close()
+          }}>Submit Revision</button>
+          <button className="btn sm ghost" disabled={ctx.busy} onClick={close}>Cancel</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1165,7 +1394,7 @@ function PageProfile({ ctx }: { ctx: Ctx }) {
       <div className="card">
         <div className="row">
           <strong>{nameOf(me)}</strong>
-          <Pill tone={statusTone(me.status)}>{me.status}</Pill>
+          <Pill tone={statusTone(me.status)}>{accountStatusLabel(me)}</Pill>
           <RoleBadges person={me} />
         </div>
         <p className="field-hint" style={{ marginTop: 10 }}>
@@ -1189,8 +1418,21 @@ function PageProfile({ ctx }: { ctx: Ctx }) {
 }
 
 function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  let hash = 0
+  for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
+  const hue = Math.abs(hash) % 360
+  
+  const bg = ini.coverUrl 
+    ? `url(${ini.coverUrl}) center/cover no-repeat` 
+    : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
+
   return (
-    <a className="card" href={`#/initiative/${ini.id}/overview`} style={{ display: 'block' }}>
+    <a className="card" href={`#/initiative/${ini.id}/overview`} style={{ display: 'block', overflow: 'hidden' }}>
+      <div style={{
+        margin: '-20px -20px 20px -20px',
+        height: '140px',
+        background: bg
+      }} />
       <div className="between">
         <h3 style={{ marginBottom: 4 }}>{ini.title}</h3>
         <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
@@ -1380,7 +1622,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
     (ctx.isAdmin || ledIds.includes(r.initiativeId ?? '')))
   const pendingAccounts = data.people.filter((p) => p.status === 'pending')
   const unreviewedRm = data.documents.filter((d) =>
-    d.kind === 'rm' && d.status === 'submitted' &&
+    !d.historical && d.kind === 'rm' && d.status === 'submitted' &&
     !data.obligations.some((o) => o.kind === 'review' && o.targetId === d.id))
   const openThreads = data.threads.filter((t) => {
     if (t.resolved) return false
@@ -1474,7 +1716,16 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
   const isMember = !!ctx.userId && (ini.members.includes(ctx.userId) || ini.leadId === ctx.userId)
   const canManage = ini.leadId === ctx.userId || ctx.isAdmin
-  const docs = ctx.data.documents.filter((d) => d.initiativeId === ini.id)
+  const initiativeDocs = ctx.data.documents.filter((d) => d.initiativeId === ini.id)
+  // Canonical historical records are imported as one RM/review pair per source
+  // week. Keep live documents in their existing order, while presenting those
+  // historical weeks chronologically with the RM before its linked review.
+  const docs = [
+    ...initiativeDocs.filter((d) => d.historical).sort((a, b) =>
+      (a.sourceOrder ?? Number.MAX_SAFE_INTEGER) - (b.sourceOrder ?? Number.MAX_SAFE_INTEGER) ||
+      (a.kind === 'rm' ? 0 : 1) - (b.kind === 'rm' ? 0 : 1)),
+    ...initiativeDocs.filter((d) => !d.historical),
+  ]
   const joinReqs = ctx.data.requests.filter((r) =>
     r.kind === 'join' && r.initiativeId === ini.id && r.status === 'pending')
   const myPendingJoin = ctx.data.requests.some((r) =>
@@ -1487,8 +1738,16 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
   const done = ini.tasks.filter((t) => t.done).length
 
+  let hash = 0
+  for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
+  const hue = Math.abs(hash) % 360
+  const bg = ini.coverUrl 
+    ? `url(${ini.coverUrl}) center/cover no-repeat` 
+    : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
+
   return (
     <div>
+      <div style={{ height: 160, background: bg, margin: '-20px -20px 20px -20px' }} />
       <div className="section">
         <p className="muted"><a href="#/catalog"><ArrowLeft size={13} /> Catalog</a></p>
         <div className="between">
@@ -1516,8 +1775,17 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
       {tab === 'overview' ? (
         <div className="card">
-          <h3>Abstract</h3>
-          <p>{ini.abstract}</p>
+          <div className="between">
+            <h3>Abstract</h3>
+            {(ini.leadId === ctx.userId || ctx.isAdmin) ? <CoverForm ctx={ctx} ini={ini} /> : null}
+          </div>
+          <p style={{ marginTop: 8 }}>{ini.abstract}</p>
+          {ini.motivation ? (
+            <div style={{ marginTop: 24 }}>
+              <h3>Motivation</h3>
+              <p style={{ whiteSpace: 'pre-wrap' }}>{ini.motivation}</p>
+            </div>
+          ) : null}
           <div style={{ marginTop: 16 }}>
             {!ctx.approved ? (
               <p className="muted">Sign in with an approved account to join or see the workspace.</p>
@@ -1654,11 +1922,11 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
             <tbody>
               {docs.length ? docs.map((d) => (
                 <tr key={d.id}>
-                  <td><a href={`#/document/${d.id}`}>{d.title}</a></td>
-                  <td>{d.kind === 'rm' ? 'reporting memo' : 'review'}</td>
+                  <td><a href={`#/document/${d.id}`}>{d.title}</a>{d.historical && (d.sourceWeek || d.sourcePeriod) ? <div className="field-hint">{d.sourceWeek ? `Week: ${d.sourceWeek}` : d.sourcePeriod}</div> : null}</td>
+                  <td>{d.kind === 'rm' ? 'reporting memo' : 'review'}{d.historical ? ' (historical)' : ''}</td>
                   <td><Pill tone={statusTone(d.status)}>{d.status}</Pill></td>
                   <td>v{d.version}</td>
-                  <td>{fmtDate(d.submittedAt)}</td>
+                  <td>{d.submittedAt ? fmtDate(d.submittedAt) : d.sourcePeriod ?? d.sourceWeek ?? 'Date unavailable'}</td>
                 </tr>
               )) : <tr><td colSpan={5} className="muted">No documents yet.</td></tr>}
             </tbody>
@@ -1710,7 +1978,9 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
       </div>
     )
   }
-  return <SubmittedDoc ctx={ctx} doc={doc} ini={ini} />
+  // Keyed on the document so the selected version - and the Research revision
+  // form inside - reset when the route moves to another memo.
+  return <SubmittedDoc key={doc.id} ctx={ctx} doc={doc} ini={ini} />
 }
 
 function PageProposals({ ctx }: { ctx: Ctx }) {
@@ -1727,7 +1997,7 @@ function PageProposals({ ctx }: { ctx: Ctx }) {
         <div className="section">
           <h2>Awaiting Research review</h2>
           {queue.length ? queue.map((r) => {
-            const { category, abstract, plan } = readProposal(r.body)
+            const { category, abstract, plan, motivation } = readProposal(r.body)
             return (
               <div className="card" key={r.id}>
                 <div className="between">
@@ -1742,6 +2012,9 @@ function PageProposals({ ctx }: { ctx: Ctx }) {
                 <p style={{ marginTop: 8 }}>{abstract}</p>
                 {plan ? (
                   <p style={{ marginTop: 8 }}><strong>Execution plan:</strong> {plan}</p>
+                ) : null}
+                {motivation ? (
+                  <p style={{ marginTop: 8 }}><strong>Motivation:</strong> {motivation}</p>
                 ) : null}
                 <DecisionForm
                   ctx={ctx}
@@ -1762,7 +2035,7 @@ function PageProposals({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h2>Your proposals</h2>
         {mine.length ? mine.map((r) => {
-          const { category, abstract, plan } = readProposal(r.body)
+          const { category, abstract, plan, motivation } = readProposal(r.body)
           const editable = r.status === 'draft' || r.status === 'changes_requested'
           return (
             <div className="card" key={r.id}>
@@ -1775,6 +2048,7 @@ function PageProposals({ ctx }: { ctx: Ctx }) {
               </div>
               <p className="muted" style={{ marginTop: 6 }}>{abstract}</p>
               {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
+              {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
               {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
               {editable ? (
                 <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
@@ -1873,11 +2147,11 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
                   {p.major ? <div className="field-hint">{p.major}</div> : null}
                 </td>
                 <td className="muted">{p.email}</td>
-                <td><Pill tone={statusTone(p.status)}>{p.status}</Pill></td>
+                <td><Pill tone={statusTone(p.status)}>{accountStatusLabel(p)}</Pill></td>
                 <td>
                   {ctx.isOperations && p.id !== ctx.userId && p.status === 'approved' ? (
                     <div className="btn-row">
-                      {['research', 'operations'].map((role) => {
+                      {['research', 'operations', 'admin'].map((role) => {
                         const has = p.roles.includes(role)
                         return (
                           <button
@@ -1919,7 +2193,7 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
           </tbody>
         </table>
         {!ctx.isOperations ? (
-          <p className="field-hint">Only Operations can grant or revoke roles.</p>
+          <p className="field-hint">Only Operations or Admin can grant or revoke roles.</p>
         ) : null}
       </div>
     </div>
@@ -1996,7 +2270,7 @@ function CycleControls({ ctx }: { ctx: Ctx }) {
 }
 
 function PageAssignments({ ctx }: { ctx: Ctx }) {
-  const submittedRm = ctx.data.documents.filter((d) => d.kind === 'rm' && d.status === 'submitted')
+  const submittedRm = ctx.data.documents.filter((d) => !d.historical && d.kind === 'rm' && d.status === 'submitted')
   const reviewObligations = ctx.data.obligations.filter((o) => o.kind === 'review')
   return (
     <div>
@@ -2246,8 +2520,8 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   const me = userId ? data.people.find((p) => p.id === userId) ?? null : null
   const approved = me?.status === 'approved'
   const roles = me?.roles ?? []
-  const isResearch = approved && roles.includes('research')
-  const isOperations = approved && roles.includes('operations')
+  const isResearch = approved && (roles.includes('research') || roles.includes('admin'))
+  const isOperations = approved && (roles.includes('operations') || roles.includes('admin'))
   const isAdmin = isResearch || isOperations
 
   const guard = async (fn: () => Promise<unknown>, okMsg?: string): Promise<boolean> => {
@@ -2280,6 +2554,12 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     onSignIn: (email, details) =>
       guard(() => onSignIn(email, details), 'Check your email for a sign-in link.').then(() => undefined),
     onSignOut: () => guard(() => onSignOut()).then(() => undefined),
+    uploadRmImage: async (documentId, initiativeId, file) => {
+      const payload: any = { documentId, initiativeId, file, result: null }
+      await guard(() => onAction('uploadRmImage', payload))
+      if (!payload.result) throw new Error('Upload failed')
+      return payload.result
+    },
   }
 
   const leads = !!userId && data.initiatives.some((i) => i.leadId === userId)

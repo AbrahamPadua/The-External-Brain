@@ -77,7 +77,7 @@ describe('account permissions', () => {
     expect(canViewInternalAccount(account('rejected', 'rejected'), account('rejected', 'rejected'))).toBe(false)
   })
 
-  it.each(['research-admin', 'operations-admin'] as const)('%s can approve another pending account', (role) => {
+  it.each(['research-admin', 'operations-admin', 'admin'] as const)('%s can approve another pending account', (role) => {
     expect(canApproveAccount(account('admin', 'approved', role), account('candidate', 'pending'))).toBe(true)
   })
 

@@ -17,7 +17,7 @@ for(const file of readdirSync('../supabase/migrations').filter(x=>x.endsWith('.s
 }
 const ids={admin:'00000000-0000-4000-8000-000000000001',lead:'00000000-0000-4000-8000-000000000002',pending:'00000000-0000-4000-8000-000000000003',member:'00000000-0000-4000-8000-000000000004'}
 for(const id of Object.values(ids))await db.query('insert into auth.users(id) values($1)',[id])
-await db.exec(`update profiles set account_status='approved' where id<>'${ids.pending}'; insert into role_grants(user_id,role,granted_by) values('${ids.admin}','operations','${ids.admin}'),('${ids.admin}','research','${ids.admin}');`)
+await db.exec(`update profiles set account_status='approved' where id<>'${ids.pending}'; insert into role_grants(user_id,role,granted_by) values('${ids.admin}','admin','${ids.admin}');`)
 // 202609100007: a probe object so the initiative-images policy can be exercised from the first actor on.
 await db.query(`insert into storage.objects(bucket_id,name) values('initiative-images','00000000-0000-4000-8000-0000000000ff/probe.png')`)
 async function actor(id){await db.exec('reset role');await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[id]);await db.exec(`set role authenticated;`)}
@@ -29,11 +29,14 @@ await rejected(`select public.save_proposal('forged','summary','{}',true,null)`)
 assert.equal((await db.query('select * from profiles')).rows.length,1)
 await rejected(`select public.decide_account($1,'approved','self')`,[ids.pending])
 await actor(ids.admin)
+assert.equal((await db.query(`select public.has_role('operations') r`)).rows[0].r, true)
+assert.equal((await db.query(`select public.has_role('research') r`)).rows[0].r, true)
 assert.equal((await db.query('select * from public.admin_account_emails()')).rows.length,4)
 await db.query(`select decide_account($1,'approved','reviewed')`,[ids.pending])
 await actor(ids.lead)
 await rejected('select * from public.admin_account_emails()')
-const pid=(await db.query(`select save_proposal('Pilot','Summary','{}',true,null) id`)).rows[0].id
+const motivation=Array.from({length:150},(_,i)=>`reason${i}`).join(' ')
+const pid=(await db.query(`select save_proposal('Pilot','Summary',$1::jsonb,true,null) id`,[JSON.stringify({motivation})])).rows[0].id
 await actor(ids.admin)
 const iid=(await db.query(`select decide_proposal($1,'approved','ready') id`,[pid])).rows[0].id
 assert.equal((await db.query(`select decide_proposal($1,'approved','retry') id`,[pid])).rows[0].id,iid)
@@ -67,7 +70,7 @@ await db.query(`select add_comment($1,1,'block-1','Useful',null,null,'Progress')
 // --- 202609100006 review integrity -----------------------------------------
 // A second initiative led by ids.member, so each initiative can review the other.
 await actor(ids.member)
-const pid2=(await db.query(`select save_proposal('Companion','Second summary','{}',true,null) id`)).rows[0].id
+const pid2=(await db.query(`select save_proposal('Companion','Second summary',$1::jsonb,true,null) id`,[JSON.stringify({motivation})])).rows[0].id
 await actor(ids.admin)
 const iid2=(await db.query(`select decide_proposal($1,'approved','ready') id`,[pid2])).rows[0].id
 await db.exec('reset role')

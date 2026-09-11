@@ -606,6 +606,10 @@ textarea:focus {
 .muted {
   color: var(--muted);
 }
+.historical-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .clamp3 {
   display: -webkit-box;
   -webkit-line-clamp: 3;

@@ -106,7 +106,10 @@ export async function loadLive(userId:string|null):Promise<Data>{
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
  state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state
  }
- const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications'].map(rows))
+ const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles'].map(rows))
+ // Which weeks Research has actually opened. A Roast Me draft can name a week
+ // that is not in here yet; that is a pending week, not an error.
+ state.cycles=cycles.map(c=>({startsOn:String(c.starts_on).slice(0,10),isBreak:!!c.is_break,rmDue:c.rm_due_at,reviewDue:c.review_due_at})).sort((a,b)=>a.startsOn.localeCompare(b.startsOn))
  state.people.forEach(p=>p.roles=roles.filter(r=>r.user_id===p.id&&!r.revoked_at).map(r=>r.role))
  if(state.people.find(p=>p.id===userId)?.roles.some(r=>r==='operations'||r==='research'||r==='admin')){
  const emails=await rpc('admin_account_emails') as {user_id:string;email:string|null}[]
@@ -114,14 +117,14 @@ export async function loadLive(userId:string|null):Promise<Data>{
  state.people.forEach(p=>p.email=byId.get(p.id)??'')
  }
  const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,done:t.status==='done'})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:t.details??'',status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
  state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
  // Two passes: collect every object path referenced by any body or any stored
  // version, sign them all in one round trip, then render. Old versions keep
  // their images because their own paths are signed here too.
  const shaped=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const draft=drafts.find(v=>v.document_id===d.id);const content=draft?.content??vs.at(-1)?.content??{};return {d,vs,draft,content,bodyHtml:html(content),versionHtml:vs.map(v=>html(v.content))}})
  const imageUrls=await signPaths(IMAGES_BUCKET,shaped.flatMap(s=>[...objectPathsIn(s.bodyHtml),...s.versionHtml.flatMap(objectPathsIn)]))
- state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(content,d.kind==='rm'?'Weekly RM':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourcePeriod:typeof content?.source_period==='string'?content.source_period:undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?content.source_week:undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,obligationId:d.obligation_id,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
+ state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(content,d.kind==='rm'?'Roast Me':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourcePeriod:typeof content?.source_period==='string'?content.source_period:undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?content.source_week:undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
  state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
  state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
  state.audit=audit.map(a=>({id:a.id,at:a.created_at,actor:a.actor_id,action:a.action,detail:JSON.stringify(a.detail)}));
@@ -162,11 +165,11 @@ async function registerOrRollBack<T>(bucket:string,path:string,register:()=>Prom
 }
 export async function liveAction(data:Data,_userId:string|null,action:string,p:any){
  const id=p.id??p.documentId??p.requestId??p.userId??p.initiativeId
- const doc=data.documents.find(d=>d.id===(p.documentId??p.id)) as (DocumentRecord & {obligationId:string;draftRevision?:number})|undefined
+ const doc:DocumentRecord|undefined=data.documents.find(d=>d.id===(p.documentId??p.id))
  const obligation=data.obligations.find(o=>o.id===(p.obligationId??doc?.obligationId))
  // Built once, already stripped: no write path can accidentally persist the
  // signed URL that the editor was displaying.
- const content={html:stripSignedUrls(p.body??doc?.body??'<p></p>'),title:p.title??doc?.title??'Weekly update',blocks:[]}
+ const content={html:stripSignedUrls(p.body??doc?.body??'<p></p>'),title:p.title??doc?.title??'Roast Me',blocks:[]}
  switch(action){
  case 'decideAccount':return rpc('decide_account',{p_user:p.userId??id,p_status:p.status,p_reason:p.reason||'Reviewed by administrator'})
  // Self-only by construction: update_my_profile takes no target user and writes
@@ -176,16 +179,42 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  case 'decideProposal':return rpc('decide_proposal',{p_proposal:p.requestId??id,p_status:p.status??p.decision,p_reason:p.feedback??p.reason??''})
  case 'requestJoin':return rpc('request_join',{p_initiative:p.initiativeId??id,p_message:p.body??p.message??''})
  case 'decideJoin':return rpc('decide_join_request',{p_request:p.requestId??id,p_approve:p.approve??(p.status??p.decision)==='approved',p_reason:p.feedback??p.reason??''})
+ // A Roast Me draft belongs to the team, not to a cycle: save_rm_draft creates
+ // or updates it with only the target week, and never needs an obligation. Peer
+ // reviews stay on the obligation-scoped path, because a review only exists
+ // once Research has assigned it.
  case 'reviseDocument':case 'createDraft':case 'saveDraft':{
- const oid=p.obligationId??doc?.obligationId??data.obligations.find(o=>o.initiativeId===p.initiativeId&&o.kind===(p.kind??'rm')&&['pending','missed'].includes(o.status))?.id
- if(!oid)throw new Error('No open obligation. Research leadership must open a cycle first.')
+ const kind=p.kind??doc?.kind??'rm'
+ // A Roast Me that is already submitted keeps the pre-013 revise path: it has an
+ // obligation, and save_document_draft reopens it against that obligation.
+ const revising=kind==='rm'&&!!doc?.obligationId&&doc.status!=='draft'
+ if(kind==='rm'&&!revising){
+  const initiativeId=p.initiativeId??doc?.initiativeId
+  if(!initiativeId)throw new Error('An initiative is required to start a Roast Me.')
+  return rpc('save_rm_draft',{p_initiative:initiativeId,p_content:content,p_target_monday:p.targetMonday??doc?.targetMonday??null,p_document:p.documentId??doc?.id??null,p_revision:p.revision??doc?.draftRevision??null})
+ }
+ if(revising)return rpc('save_document_draft',{p_obligation:doc!.obligationId!,p_content:content,p_revision:p.revision??doc?.draftRevision??null})
+ const oid=p.obligationId??doc?.obligationId??data.obligations.find(o=>o.initiativeId===p.initiativeId&&o.kind==='review'&&['pending','missed'].includes(o.status))?.id
+ if(!oid)throw new Error('No assigned review to draft against yet.')
  return rpc('save_document_draft',{p_obligation:oid,p_content:content,p_revision:p.revision??doc?.draftRevision??null})}
- case 'submitDocument':if(!obligation)throw new Error('No obligation for this document');return rpc('submit_obligation',{p_obligation:obligation.id,p_content:content,p_reviewed_document:obligation.targetId??null,p_reviewed_version:(obligation as any).targetVersion??null})
+ // Retargeting is its own command so the week can move without touching content.
+ case 'setDraftTarget':return rpc('set_rm_draft_target',{p_document:p.documentId??id,p_target_monday:p.targetMonday})
+ case 'submitDocument':{
+ // submit_rm_draft resolves the target week to its cycle, attaches the one RM
+ // obligation and then delegates to submit_obligation, so deadlines, HP and the
+ // lead-only rule are unchanged. An already-attached draft skips straight there.
+ if((doc?.kind??'rm')==='rm'){
+  if(!doc)throw new Error('Draft not found.')
+  return rpc('submit_rm_draft',{p_document:doc.id,p_content:content})
+ }
+ if(!obligation)throw new Error('No obligation for this document')
+ return rpc('submit_obligation',{p_obligation:obligation.id,p_content:content,p_reviewed_document:obligation.targetId??null,p_reviewed_version:(obligation as any).targetVersion??null})}
  case 'addThread':return rpc('add_comment',{p_document:p.documentId,p_version:p.version??doc?.version,p_block_id:p.blockId??'document',p_body:p.body,p_quote:p.quote??'',p_thread:null,p_parent:null})
  case 'replyThread':{const t=data.threads.find(t=>t.id===(p.threadId??id));if(!t)throw new Error('Thread not found');return rpc('add_comment',{p_document:t.documentId,p_version:t.version,p_block_id:'document',p_body:p.body,p_thread:t.id,p_parent:null,p_quote:null})}
  case 'resolveThread':return rpc('resolve_comment_thread',{p_thread:p.threadId??id,p_resolved:p.resolved??true})
- case 'toggleTask':{const task=data.initiatives.flatMap(i=>i.tasks).find(t=>t.id===(p.taskId??id));return rpc('update_task_status',{p_task:p.taskId??id,p_status:task?.done?'open':'done'})}
- case 'addTask':return rpc('create_task',{p_initiative:p.initiativeId,p_title:p.title})
+ case 'setTaskStatus':return rpc('update_task_status',{p_task:p.taskId??id,p_status:p.status})
+ case 'addTask':return rpc('create_task',{p_initiative:p.initiativeId,p_title:p.title,p_details:p.description??'',p_assignee:p.assigneeId??null,p_due_at:p.dueAt??null,p_status:p.status??'planned'})
+ case 'deleteTask':return rpc('delete_task',{p_task:p.taskId??id})
  case 'assignReview':{const candidates=data.obligations.filter(o=>o.kind==='review'&&o.assigneeId===p.reviewerId&&['pending','missed'].includes(o.status));const oid=p.obligationId??(candidates.length===1?candidates[0].id:null);if(!oid)throw new Error('Select an accountable initiative obligation. Open the cycle first if no obligations exist.');return rpc('assign_review_target',{p_obligation:oid,p_target:p.targetId??p.documentId,p_due_at:p.due??null})}
  case 'setStatus':return rpc('set_initiative_status',{p_initiative:p.initiativeId??id,p_status:p.status,p_reason:p.reason||'Leadership decision'})
  case 'adjustHp':return rpc('adjust_hp',{p_initiative:p.initiativeId??id,p_points:Number(p.points??p.delta),p_reason:p.reason})

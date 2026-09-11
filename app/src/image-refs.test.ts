@@ -148,3 +148,113 @@ describe.skipIf(!hasDom)('inline image references survive save and reload', () =
     expect(strip(partial)).toBe(saved)
   })
 })
+
+/**
+ * Pasting an image. `planPaste` is the decision the editor's handlePaste runs,
+ * so this drives the real code path with a real clipboard payload rather than a
+ * description of it. What must never happen is a persisted base64 blob or a
+ * persisted signed URL: an image has to become an uploaded object path.
+ */
+describe.skipIf(!hasDom)('clipboard image paste', () => {
+  let planPaste: (data: DataTransfer | null | undefined) => {
+    kind: string; files?: File[]; html?: string; removed?: number
+  }
+  let clipboardImageFiles: (data: DataTransfer | null | undefined) => File[]
+  let stripDataImages: (html: string) => { html: string; removed: number }
+
+  beforeAll(async () => {
+    // Re-bound here too so this suite stands on its own under a test filter.
+    const [live, editor, core, kit] = await Promise.all([
+      import('./live'), import('./Editor'), import('@tiptap/core'), import('@tiptap/starter-kit'),
+    ])
+    strip = live.stripSignedUrls
+    pathsIn = live.objectPathsIn
+    const extensions = [kit.default, editor.CustomImage] as Parameters<typeof core.generateJSON>[1]
+    toJSON = (html) => core.generateJSON(html, extensions)
+    toHTML = (json) => core.generateHTML(json as never, extensions)
+    planPaste = editor.planPaste as typeof planPaste
+    clipboardImageFiles = editor.clipboardImageFiles
+    stripDataImages = editor.stripDataImages
+  })
+
+  const png = (name = 'pasted.png', type = 'image/png') =>
+    new File([new Uint8Array(64)], name, { type })
+  /** A clipboard shaped like the one a paste event carries. */
+  const clipboard = (opts: { files?: File[]; html?: string; text?: string }) => ({
+    files: opts.files ?? [],
+    items: (opts.files ?? []).map((file) => ({ kind: 'file', getAsFile: () => file })),
+    getData: (mime: string) => (mime === 'text/html' ? opts.html ?? '' : opts.text ?? ''),
+  }) as unknown as DataTransfer
+
+  it('routes a pasted image file to the upload flow', () => {
+    const file = png()
+    const plan = planPaste(clipboard({ files: [file] }))
+    expect(plan.kind).toBe('upload')
+    expect(plan.files).toHaveLength(1)
+    expect(plan.files![0]).toBeInstanceOf(Blob)
+    expect(plan.files![0].type).toBe('image/png')
+  })
+
+  it('prefers the file even when the clipboard also carries base64 markup', () => {
+    // This is the usual shape of a screenshot paste: a real file plus an <img>
+    // with a data: URL. Taking the file is what keeps base64 out of storage.
+    const plan = planPaste(clipboard({
+      files: [png()],
+      html: '<img src="data:image/png;base64,AAAA">',
+    }))
+    expect(plan.kind).toBe('upload')
+  })
+
+  it('drops inline base64 rather than persisting it', () => {
+    const plan = planPaste(clipboard({
+      html: '<p>before</p><img src="data:image/png;base64,AAAA"><p>after</p>',
+    }))
+    expect(plan.kind).toBe('insert-html')
+    expect(plan.removed).toBe(1)
+    expect(plan.html).not.toContain('data:')
+    expect(plan.html).toContain('before')
+    expect(plan.html).toContain('after')
+  })
+
+  it('leaves ordinary text and linked images to the editor', () => {
+    expect(planPaste(clipboard({ text: 'just words' })).kind).toBe('default')
+    expect(planPaste(clipboard({ html: '<p><img src="https://cdn.example/a.png"></p>' })).kind)
+      .toBe('default')
+    expect(planPaste(null).kind).toBe('default')
+  })
+
+  it('ignores clipboard files outside the image allowlist', () => {
+    expect(clipboardImageFiles(clipboard({ files: [png('x.svg', 'image/svg+xml')] }))).toHaveLength(0)
+    expect(clipboardImageFiles(clipboard({ files: [png('x.pdf', 'application/pdf')] }))).toHaveLength(0)
+    expect(clipboardImageFiles(clipboard({ files: [png()] }))).toHaveLength(1)
+  })
+
+  it('keeps managed and linked images while stripping only base64', () => {
+    const mixed = `<img src="" data-object-path="${PATH_A}">`
+      + '<img src="https://cdn.example/a.png">'
+      + '<img src="data:image/gif;base64,BBBB">'
+    const cleaned = stripDataImages(mixed)
+    expect(cleaned.removed).toBe(1)
+    expect(cleaned.html).toContain(PATH_A)
+    expect(cleaned.html).toContain('cdn.example/a.png')
+    expect(cleaned.html).not.toContain('data:')
+  })
+
+  it('ends up as a durable object-path reference, not a URL, once uploaded', async () => {
+    // The upload result the adapter returns: an expiring URL for display and the
+    // object path that is actually stored.
+    const upload = async (file: File) => {
+      expect(file).toBeInstanceOf(Blob)
+      return { path: PATH_B, url: 'https://project.supabase.co/sign/x?token=short-lived' }
+    }
+    const plan = planPaste(clipboard({ files: [png('shot.png')] }))
+    expect(plan.kind).toBe('upload')
+    const res = await upload(plan.files![0])
+    const inserted = toHTML(toJSON(`<img src="${res.url}" data-object-path="${res.path}">`))
+    expect(pathsIn(inserted)).toEqual([PATH_B])
+    const stored = strip(inserted)
+    expect(pathsIn(stored)).toEqual([PATH_B])
+    expect(stored).not.toContain('token=')
+    expect(stored).not.toContain('data:')
+  })
+})

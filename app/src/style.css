@@ -741,3 +741,8 @@ textarea:focus {
     padding: 18px;
   }
 }
+.modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.55);display:grid;place-items:center;padding:20px}
+.modal-card{background:var(--card,#fff);color:inherit;width:min(560px,100%);max-height:calc(100vh - 40px);overflow:auto;border-radius:14px;padding:20px;box-shadow:0 24px 70px rgba(0,0,0,.3)}
+.task-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border,#e5e7eb)}
+.task-row:last-child{border-bottom:0}
+@media(max-width:640px){.task-row{align-items:stretch;flex-direction:column}.task-row select{width:100%}}

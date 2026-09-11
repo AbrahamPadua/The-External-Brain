@@ -104,6 +104,36 @@ export function getReviewCycleBoundaries(reference: Date): ReviewCycleBoundaries
   }
 }
 
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+const isoOf = (utc: Date) =>
+  `${utc.getUTCFullYear()}-${String(utc.getUTCMonth() + 1).padStart(2, '0')}-${String(utc.getUTCDate()).padStart(2, '0')}`
+
+/**
+ * The Monday that starts the Los Angeles week containing `reference`, as
+ * yyyy-mm-dd. This is the week key everything agrees on: cycles.starts_on,
+ * documents.target_monday and current_la_monday() in
+ * supabase/migrations/202609100013_rm_drafting_before_cycle.sql.
+ */
+export function losAngelesMonday(reference: Date = new Date()): string {
+  return getReviewCycleBoundaries(reference).cycleId
+}
+
+/** True when `iso` is a yyyy-mm-dd date that falls on a Monday. */
+export function isMondayIso(iso: string): boolean {
+  const match = ISO_DATE.exec(iso)
+  if (!match) return false
+  const utc = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  return !Number.isNaN(utc.getTime()) && utc.getUTCDay() === 1 && isoOf(utc) === iso
+}
+
+/** Shift a yyyy-mm-dd date by whole weeks, keeping the weekday. */
+export function addWeeksIso(iso: string, weeks: number): string {
+  const match = ISO_DATE.exec(iso)
+  if (!match) throw new RangeError('Expected a yyyy-mm-dd date')
+  return isoOf(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + weeks * 7)))
+}
+
 export function formatLosAngelesLocal(date: Date): string {
   if (Number.isNaN(date.getTime())) return ''
   const p = partsIn(date, LA)

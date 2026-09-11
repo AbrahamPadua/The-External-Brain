@@ -5,7 +5,14 @@
  * `onAction(action, payload)` which the host wires to either the local demo
  * engine (app/src/demo.ts, mode = 'demo') or the Supabase adapter
  * (root-owned, mode = 'live'). Both back ends implement the SAME action names
- * and payloads, documented here so they stay in lock-step:
+ * and payloads, documented here so they stay in lock-step.
+ *
+ * "RM" throughout this app is a Roast Me: constructive criticism of a team's
+ * work. It is never a reporting memo. A Roast Me draft belongs to the initiative
+ * team and exists independently of any cycle - it carries `targetMonday`, the
+ * Monday of the Los Angeles week it is meant for. That week's cycle only has to
+ * be open at SUBMISSION, when the draft is attached to the week's one RM
+ * obligation and the existing deadline / HP / lead-only rules take over.
  *
  *   createProposal   { id?, title, abstract, category, plan, status:'draft'|'submitted' }
  *       Approved account drafts or submits an initiative proposal. Stored as a
@@ -33,17 +40,25 @@
  *       Operations or Research, never your own account. `reason` required to
  *       reject/suspend. Approval unlocks internal read + comment (no project
  *       participation implied).
- *   createDraft      { initiativeId, kind:'rm'|'review', title?, targetId? }
- *       rm: any team member. review: the assigned reviewer, and never their own
- *       initiative. Re-opens the team's existing open draft if there is one. Never
- *       creates an obligation.
+ *   createDraft      { initiativeId, kind:'rm'|'review', targetMonday?, title?, targetId? }
+ *       rm: any member of an ACTIVE initiative, with or without an open cycle.
+ *       `targetMonday` defaults to the current Los Angeles Monday; the team gets
+ *       one draft per week and re-opening returns the existing one. review: the
+ *       assigned reviewer, and never their own initiative. Never creates an
+ *       obligation. Live back end: save_rm_draft / save_document_draft.
+ *   setDraftTarget   { documentId, targetMonday }
+ *       Team only, and only while the Roast Me draft is unsubmitted and not yet
+ *       attached to a cycle. Live back end: set_rm_draft_target.
  *   saveDraft        { documentId, title?, body }   (autosave; no audit entry)
  *   submitDocument   { documentId, title?, body? }
- *       rm: the initiative lead. review: the assigned reviewer (no admin override).
- *       `title`/`body` carry the live editor state so a pending autosave cannot
- *       lose edits. Appends a version, closes the matching obligation, grants +4 HP
- *       once and reverses a -10 late penalty if one was recorded. A resubmission
- *       after reviseDocument never re-earns HP.
+ *       rm: the initiative lead, and only once the `targetMonday` week's cycle is
+ *       open and is not a break week. review: the assigned reviewer (no admin
+ *       override). `title`/`body` carry the live editor state so a pending
+ *       autosave cannot lose edits. Attaches the draft to that week's single RM
+ *       obligation, appends a version, closes the obligation, grants +4 HP once
+ *       and reverses a -10 late penalty if one was recorded. A resubmission after
+ *       reviseDocument never re-earns HP. Live back end: submit_rm_draft, which
+ *       delegates to the unchanged submit_obligation.
  *   reviseDocument   { documentId }
  *       rm: the initiative lead. review: the assigned reviewer. Reopens a submitted
  *       document as a draft at the next version, keeping the first submittedAt and
@@ -52,8 +67,10 @@
  *       Approved account. Anchored to a submitted version + a quoted passage.
  *   replyThread      { threadId, body }
  *   resolveThread    { threadId, resolved? }        (toggles when `resolved` omitted)
- *   toggleTask       { initiativeId, taskId }        (team only)
- *   addTask          { initiativeId, title }         (lead / admin)
+ *   setTaskStatus    { initiativeId, taskId, status:'planned'|'pending'|'finished' }
+ *       Initiative lead, assigned teammate, or admin.
+ *   addTask          { initiativeId, title, description, dueAt?, assigneeId?, status }
+ *   deleteTask       { initiativeId, taskId }        (lead / admin)
  *   assignReview     { targetId, reviewerId, obligationId?, due? }
  *       Research only. Points one of the reviewer's existing OPEN review
  *       obligations at the memo; `obligationId` is mandatory when the reviewer
@@ -65,6 +82,9 @@
  *   setRole          { userId, role:'research'|'operations'|'admin', grant:boolean }
  *       Operations or Admin only, never self. Admin satisfies all role checks.
  *   openCycle        { monday, isBreak }
+ *       Research only. `monday` defaults in the form to the current Los Angeles
+ *       Monday and can be overridden. Idempotent per week; it never creates a
+ *       second RM obligation for an initiative.
  *   evaluateDeadlines {}
  *   setPolicy        { penalty, reward }
  *       Research only. Simple weekly-cycle controls on the assignments / health
@@ -84,7 +104,9 @@ import type { FormEvent, ReactNode } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { readProposal, sanitize } from './demo'
-import { formatLosAngelesLocal, parseLosAngelesLocal } from './domain'
+import {
+  addWeeksIso, formatLosAngelesLocal, isMondayIso, losAngelesMonday, parseLosAngelesLocal,
+} from './domain'
 import {
   IMAGE_MIME_TYPES, imageFileError,
   INTERESTS_MAX, MAJOR_MAX, NAME_MAX, normalizeProfileDetails, profileDetailsError,
@@ -92,7 +114,7 @@ import {
 import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
-  Plus, Save, Send, ShieldCheck, Sparkles, TriangleAlert, UserPlus, X,
+  Plus, Save, Send, ShieldCheck, Sparkles, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
 type AppProps = {
@@ -185,6 +207,60 @@ function accountStatusLabel(p: Pick<Person, 'status' | 'roles'>): string {
     return 'Member'
   }
   return p.status
+}
+
+// --- Roast Me weeks -------------------------------------------------------
+//
+// A Roast Me ("RM") is constructive criticism of a team's work. Drafting one is
+// independent of Research opening a cycle: the draft only names the Monday of
+// the Los Angeles week it is meant for, and that week's cycle has to be open
+// before it can be submitted.
+
+/** The weeks a draft may be pointed at: last week through two weeks ahead. */
+function weekChoices(current: string, keep?: string): string[] {
+  const weeks = [-1, 0, 1, 2].map((n) => addWeeksIso(current, n))
+  if (keep && isMondayIso(keep) && !weeks.includes(keep)) weeks.push(keep)
+  return [...new Set(weeks)].sort()
+}
+
+type WeekState = { tone: string; label: string; note: string }
+
+/** Whether that week's cycle is open, and what to tell the team if it is not. */
+function weekState(ctx: Ctx, monday: string | undefined): WeekState {
+  if (!monday) return { tone: 'warn', label: 'no week chosen', note: 'Choose the week this Roast Me is for.' }
+  const cycle = (ctx.data.cycles ?? []).find((c) => c.startsOn === monday)
+  if (!cycle) {
+    return {
+      tone: 'warn', label: 'cycle not opened yet',
+      note: `Research has not opened the week of ${monday} yet. Keep drafting - you can submit as soon as it opens, or point this draft at an open week.`,
+    }
+  }
+  if (cycle.isBreak) {
+    return {
+      tone: 'muted', label: 'break week',
+      note: `The week of ${monday} is a break week and takes no Roast Me. Point this draft at a working week.`,
+    }
+  }
+  return { tone: 'good', label: 'cycle open', note: '' }
+}
+
+function WeekSelect({ ctx, value, onPick, disabled }: {
+  ctx: Ctx; value: string; onPick: (monday: string) => void; disabled?: boolean
+}) {
+  const current = losAngelesMonday()
+  return (
+    <select value={value} disabled={disabled || ctx.busy} onChange={(e) => onPick(e.target.value)}>
+      {weekChoices(current, value).map((week) => {
+        const open = (ctx.data.cycles ?? []).find((c) => c.startsOn === week)
+        const tag = !open ? 'not opened' : open.isBreak ? 'break week' : 'open'
+        return (
+          <option key={week} value={week}>
+            Week of {week}{week === current ? ' (this week)' : ''} - {tag}
+          </option>
+        )
+      })}
+    </select>
+  )
 }
 
 function versionsOf(doc: DocumentRecord): { version: number; body: string; at: string }[] {
@@ -718,23 +794,43 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   )
 }
 
-function AddTaskForm({ ctx, initiativeId }: { ctx: Ctx; initiativeId: string }) {
+function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [due, setDue] = useState('')
+  const [assigneeId, setAssigneeId] = useState('')
+  const [status, setStatus] = useState<'planned'|'pending'|'finished'>('planned')
+  const members = [...new Set([ini.leadId, ...ini.members])]
+    .map((id) => ctx.data.people.find((p) => p.id === id))
+    .filter((p): p is Person => !!p && p.status === 'approved')
+  const close = () => { if (!ctx.busy) setOpen(false) }
+  if (!open) return <button className="btn sm" onClick={() => setOpen(true)}><Plus size={15} /> Add task</button>
   return (
-    <form
-      className="row"
-      onSubmit={async (e) => {
-        e.preventDefault()
-        const ok = await ctx.run('addTask', { initiativeId, title: title.trim() }, 'Task added.')
-        if (ok) setTitle('')
-      }}
-    >
-      <input
-        type="text" placeholder="Add a task" value={title} disabled={ctx.busy}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <button className="btn sm" disabled={ctx.busy || !title.trim()}><Plus size={15} /> Add</button>
-    </form>
+    <div className="modal-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
+      <form className="modal-card stack" role="dialog" aria-modal="true" aria-labelledby="add-task-title"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          const dueAt = due ? new Date(due).toISOString() : undefined
+          const ok = await ctx.run('addTask', { initiativeId: ini.id, title: title.trim(),
+            description: description.trim(), dueAt, assigneeId: assigneeId || undefined, status }, 'Task added.')
+          if (ok) { setTitle(''); setDescription(''); setDue(''); setAssigneeId(''); setStatus('planned'); setOpen(false) }
+        }}>
+        <div className="between"><h3 id="add-task-title">Add task</h3>
+          <button type="button" className="btn ghost sm" aria-label="Close" onClick={close}><X size={16} /></button></div>
+        <Field label="Title"><input autoFocus required maxLength={160} value={title} disabled={ctx.busy} onChange={(e) => setTitle(e.target.value)} /></Field>
+        <Field label="Description (optional)"><textarea maxLength={2000} value={description} disabled={ctx.busy} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Due date and time (optional)"><input type="datetime-local" value={due} disabled={ctx.busy} onChange={(e) => setDue(e.target.value)} /></Field>
+        <Field label="Assigned to (optional)"><select value={assigneeId} disabled={ctx.busy} onChange={(e) => setAssigneeId(e.target.value)}>
+          <option value="">Unassigned</option>{members.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}
+        </select></Field>
+        <Field label="Status"><select value={status} disabled={ctx.busy} onChange={(e) => setStatus(e.target.value as typeof status)}>
+          <option value="planned">Planned</option><option value="pending">Pending</option><option value="finished">Finished</option>
+        </select></Field>
+        <div className="btn-row"><button className="btn" disabled={ctx.busy || !title.trim()}>Add task</button>
+          <button type="button" className="btn ghost" disabled={ctx.busy} onClick={close}>Cancel</button></div>
+      </form>
+    </div>
   )
 }
 
@@ -954,6 +1050,8 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
   const [title, setTitle] = useState(doc.title)
   const [body, setBody] = useState(doc.body)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [submittingRm, setSubmittingRm] = useState(false)
+  const [submitMonday, setSubmitMonday] = useState(doc.targetMonday ?? losAngelesMonday())
   const dirty = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -967,35 +1065,70 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
     return () => clearTimeout(timer.current)
   }, [title, body]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const canSubmit = doc.kind === 'rm'
-    ? ini.leadId === ctx.userId
-    : doc.authorId === ctx.userId
+  const isRm = doc.kind === 'rm'
+  const attached = !!doc.obligationId
+  const isLead = ini.leadId === ctx.userId
+  const choosingWeek = isRm && submittingRm && !attached
+  const submissionWeek = attached ? doc.targetMonday : submitMonday
+  const week = weekState(ctx, submissionWeek)
+  // Drafting never needs a cycle. The chooser and cycle validation appear only
+  // after the lead starts the submission flow.
+  const blocked = isRm && (choosingWeek || attached) && week.tone !== 'good' ? week.note : ''
+  const canStartSubmit = isRm ? isLead : doc.authorId === ctx.userId
+  const targetSaved = attached || doc.targetMonday === submitMonday
+  const canFinishSubmit = canStartSubmit && (!isRm || attached || (submittingRm && !blocked && targetSaved))
 
   return (
     <div className="card">
       <div className="between">
         <div>
           <Pill tone="info">draft</Pill>{' '}
-          <Pill tone="muted">{doc.kind === 'rm' ? 'reporting memo' : 'manual review'}</Pill>
+          <Pill tone="muted">{isRm ? 'Roast Me' : 'manual review'}</Pill>{' '}
+          {isRm && (choosingWeek || attached) ? <Pill tone={week.tone}>{week.label}</Pill> : null}
         </div>
         <span className="muted">
           {savedAt ? `saved ${fmtDateTime(new Date(savedAt).toISOString())}` : 'not saved yet'}
         </span>
       </div>
+      {choosingWeek ? (
+        <Field
+          label="Submit for cycle week (Monday, Los Angeles)"
+          hint="Choose the cycle this Roast Me should satisfy. The cycle must already be open."
+        >
+          <WeekSelect
+            ctx={ctx} value={submitMonday} onPick={async (monday) => {
+              const previous = doc.targetMonday ?? losAngelesMonday()
+              setSubmitMonday(monday)
+              const ok = await ctx.run('setDraftTarget',
+                { documentId: doc.id, targetMonday: monday }, `Pointed at the week of ${monday}.`)
+              if (!ok) setSubmitMonday(previous)
+            }}
+          />
+        </Field>
+      ) : null}
+      {isRm && attached ? (
+        <p className="field-hint">This revision remains attached to the cycle week of {doc.targetMonday}.</p>
+      ) : null}
+      {blocked ? <p className="field-hint" role="status">{blocked}</p> : null}
       <Field label="Title">
         <input
           type="text" value={title} disabled={ctx.busy}
           onChange={(e) => { dirty.current = true; setTitle(e.target.value) }}
         />
       </Field>
-      <Field label="Body">
-        <Editor body={body} onChange={(html) => { dirty.current = true; setBody(html) }} onUploadImage={(file) => {
-          if (!doc.id) {
-            alert('Please save the draft first.')
-            return Promise.resolve(null)
-          }
-          return ctx.uploadRmImage(doc.id, ini.id, file)
-        }} />
+      <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
+        <Editor
+          body={body}
+          onChange={(html) => { dirty.current = true; setBody(html) }}
+          uploadScopeId={doc.id}
+          onUploadImage={(file) => {
+            if (!doc.id) {
+              alert('Please save the draft first.')
+              return Promise.resolve(null)
+            }
+            return ctx.uploadRmImage(doc.id, ini.id, file)
+          }}
+        />
       </Field>
       <div className="btn-row">
         <button
@@ -1010,22 +1143,56 @@ function DraftEditor({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: In
         </button>
         <button
           className="btn"
-          disabled={ctx.busy || !canSubmit}
-          title={canSubmit ? '' : 'Only the lead submits this document'}
+          disabled={ctx.busy || !canStartSubmit || (submittingRm && !canFinishSubmit)}
+          title={blocked || (canStartSubmit ? '' : 'Only the lead submits this document')}
           onClick={async () => {
-            const label = doc.kind === 'rm' ? 'reporting memo' : 'review'
+            const label = isRm ? 'Roast Me' : 'review'
+            if (isRm && !attached && !submittingRm) {
+              setSubmittingRm(true)
+              return
+            }
             if (!window.confirm(`Submit this ${label}? You can reopen it later to revise.`)) return
             clearTimeout(timer.current) // cancel any pending autosave
             dirty.current = false
             await ctx.run('submitDocument', { documentId: doc.id, title, body }, 'Submitted.')
           }}
         >
-          <Send size={15} /> Submit
+          <Send size={15} /> {isRm && !attached && !submittingRm ? 'Choose cycle & submit' : 'Submit'}
         </button>
       </div>
-      {!canSubmit ? (
-        <p className="field-hint">The initiative lead submits the team's reporting memo.</p>
+      {isRm && !isLead ? (
+        <p className="field-hint">
+          Any member of the team can draft; the initiative lead submits the team's Roast Me.
+        </p>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Any member of an active initiative can start a Roast Me without choosing a
+ * cycle. It is provisionally kept under the current Los Angeles week until the
+ * lead chooses the cycle in the submission flow.
+ */
+function StartRoastMe({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  const monday = losAngelesMonday()
+  const existing = ctx.data.documents.find((d) =>
+    d.initiativeId === ini.id && d.kind === 'rm' && !d.historical && d.targetMonday === monday)
+  return (
+    <div className="row">
+      <button
+        className="btn sm"
+        disabled={ctx.busy || ini.status !== 'active'}
+        title={ini.status !== 'active' ? 'This initiative is not active.' : ''}
+        onClick={async () => {
+          if (existing) { go(`#/document/${existing.id}`); return }
+          const ok = await ctx.run('createDraft',
+            { initiativeId: ini.id, kind: 'rm' }, 'Roast Me draft started.')
+          if (ok) go(`#/initiative/${ini.id}/documents`)
+        }}
+      >
+        <Plus size={15} /> {existing ? 'Open this week’s Roast Me' : 'Start Roast Me'}
+      </button>
     </div>
   )
 }
@@ -1133,7 +1300,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
           <div>
             <h3 style={{ marginBottom: 4 }}>{doc.title}</h3>
             <div className="row">
-              <Pill tone="muted">{doc.kind === 'rm' ? 'reporting memo' : 'manual review'}</Pill>
+              <Pill tone="muted">{doc.kind === 'rm' ? 'Roast Me' : 'manual review'}</Pill>
               {doc.historical ? <Pill tone="info">historical record</Pill> : null}
               <Pill tone={statusTone(doc.status)}>{doc.status}</Pill>
               <span className="muted">by {doc.authorName ?? ctx.personName(doc.authorId)}</span>
@@ -1200,7 +1367,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
 }
 
 /**
- * Research revision of a reporting memo.
+ * Research revision of a Roast Me.
  *
  * Everything the revision will send is captured in ONE snapshot taken when the
  * form opens: the document it belongs to, the version token, and the author /
@@ -1290,8 +1457,11 @@ function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
           </Field>
         )}
 
-        <Field label="Body">
+        <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
+          {/* Scoped to the snapshot's document, so an upload that finishes after
+              the form moved on is discarded rather than inserted here. */}
           <Editor body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
+            uploadScopeId={draft.docId}
             onUploadImage={(file) => ctx.uploadRmImage(draft.docId, doc.initiativeId, file)} />
         </Field>
 
@@ -1491,9 +1661,15 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
   const ini = ctx.data.initiatives.find((i) => i.id === ob.initiativeId)
   const targetDoc = ob.targetId ? ctx.data.documents.find((d) => d.id === ob.targetId) : null
   const reviewedIni = targetDoc ? ctx.data.initiatives.find((i) => i.id === targetDoc.initiativeId) : null
+  // The obligation's deadline sits inside the week it belongs to, so its LA
+  // Monday is the week a draft has to be pointed at to satisfy it.
+  const week = losAngelesMonday(new Date(ob.due))
   const draft = ctx.data.documents.find((d) =>
-    d.status === 'draft' && d.kind === ob.kind && d.authorId === ctx.userId &&
-    (ob.kind === 'rm' ? d.initiativeId === ob.initiativeId : d.targetId === ob.targetId),
+    d.status === 'draft' && d.kind === ob.kind &&
+    (ob.kind === 'rm'
+      // A Roast Me draft belongs to the whole team, whoever started it.
+      ? d.initiativeId === ob.initiativeId && (d.targetMonday ?? week) === week
+      : d.targetId === ob.targetId && d.authorId === ctx.userId),
   )
   const submitted = ctx.data.documents.find((d) =>
     d.status !== 'draft' && d.kind === ob.kind &&
@@ -1507,7 +1683,7 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
         <div>
           <strong>
             {ob.kind === 'rm'
-              ? `Reporting memo - ${ini?.title ?? 'initiative'}`
+              ? `Roast Me - ${ini?.title ?? 'initiative'}`
               : `Review of ${targetDoc?.title ?? 'a memo'}${reviewedIni ? ` (${reviewedIni.title})` : ''}`}
           </strong>
           <div className="msg-meta">
@@ -1527,7 +1703,7 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
               onClick={async () => {
                 const ok = ob.kind === 'rm'
                   ? await ctx.run('createDraft',
-                    { initiativeId: ob.initiativeId, kind: 'rm' }, 'Draft started.')
+                    { initiativeId: ob.initiativeId, kind: 'rm', targetMonday: week }, 'Draft started.')
                   : await ctx.run('createDraft',
                     { initiativeId: reviewedIni?.id, kind: 'review', targetId: ob.targetId }, 'Draft started.')
                 if (ok && ini) {
@@ -1654,10 +1830,10 @@ function PageHome({ ctx }: { ctx: Ctx }) {
       <ProfileNudge ctx={ctx} />
 
       <div className="section">
-        <h2><Inbox size={18} /> Your reporting memos</h2>
+        <h2><Inbox size={18} /> Your Roast Mes</h2>
         {myRm.length
           ? myRm.map((o) => <ObligationRow key={o.id} ctx={ctx} ob={o} />)
-          : <Empty>No reporting memo due right now.</Empty>}
+          : <Empty>No Roast Me due right now. You can still start one from your initiative’s Documents tab.</Empty>}
       </div>
 
       <div className="section">
@@ -1736,7 +1912,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
     ? ['overview', 'tasks', 'team', 'documents', 'activity']
     : ['overview', 'team']
 
-  const done = ini.tasks.filter((t) => t.done).length
+  const done = ini.tasks.filter((t) => t.status === 'finished').length
 
   let hash = 0
   for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
@@ -1808,16 +1984,26 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
           </div>
           <div className="stack" style={{ margin: '12px 0' }}>
             {ini.tasks.length ? ini.tasks.map((t) => (
-              <label key={t.id} className="row" style={{ gap: 8 }}>
-                <input
-                  type="checkbox" checked={t.done} disabled={ctx.busy || !isMember}
-                  onChange={() => ctx.run('toggleTask', { initiativeId: ini.id, taskId: t.id })}
-                />
-                <span style={{ textDecoration: t.done ? 'line-through' : 'none' }}>{t.title}</span>
-              </label>
+              <div key={t.id} className="task-row">
+                <div style={{ flex: 1 }}><strong style={{ textDecoration: t.status === 'finished' ? 'line-through' : 'none' }}>{t.title}</strong>
+                  {t.description ? <p className="field-hint" style={{ whiteSpace: 'pre-wrap' }}>{t.description}</p> : null}
+                  <div className="row field-hint">
+                    {t.assigneeId ? <span>Assigned to {ctx.personName(t.assigneeId)}</span> : <span>Unassigned</span>}
+                    {t.dueAt ? <span>Due {fmtDateTime(t.dueAt)}</span> : null}
+                  </div>
+                </div>
+                <select aria-label={`Status for ${t.title}`} value={t.status}
+                  disabled={ctx.busy || !(canManage || t.assigneeId === ctx.userId)}
+                  onChange={(e) => ctx.run('setTaskStatus', { initiativeId: ini.id, taskId: t.id, status: e.target.value }, 'Task updated.')}>
+                  <option value="planned">Planned</option><option value="pending">Pending</option><option value="finished">Finished</option>
+                </select>
+                {canManage ? <button className="btn danger sm" disabled={ctx.busy} aria-label={`Delete ${t.title}`}
+                  onClick={() => { if (window.confirm(`Delete task “${t.title}”? This cannot be undone.`)) void ctx.run('deleteTask', { initiativeId: ini.id, taskId: t.id }, 'Task deleted.') }}>
+                  <Trash2 size={15} /> Delete</button> : null}
+              </div>
             )) : <Empty>No tasks yet.</Empty>}
           </div>
-          {canManage ? <AddTaskForm ctx={ctx} initiativeId={ini.id} /> : null}
+          {canManage ? <AddTaskForm ctx={ctx} ini={ini} /> : null}
         </div>
       ) : null}
 
@@ -1901,19 +2087,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="card">
           <div className="between">
             <h3>Documents</h3>
-            {isMember ? (
-              <button
-                className="btn sm"
-                disabled={ctx.busy}
-                onClick={async () => {
-                  const ok = await ctx.run('createDraft',
-                    { initiativeId: ini.id, kind: 'rm' }, 'Draft started.')
-                  if (ok) go(`#/initiative/${ini.id}/documents`)
-                }}
-              >
-                <Plus size={15} /> Start reporting memo
-              </button>
-            ) : null}
+            {isMember ? <StartRoastMe ctx={ctx} ini={ini} /> : null}
           </div>
           <table className="table" style={{ marginTop: 10 }}>
             <thead>
@@ -1923,7 +2097,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
               {docs.length ? docs.map((d) => (
                 <tr key={d.id}>
                   <td><a href={`#/document/${d.id}`}>{d.title}</a>{d.historical && (d.sourceWeek || d.sourcePeriod) ? <div className="field-hint">{d.sourceWeek ? `Week: ${d.sourceWeek}` : d.sourcePeriod}</div> : null}</td>
-                  <td>{d.kind === 'rm' ? 'reporting memo' : 'review'}{d.historical ? ' (historical)' : ''}</td>
+                  <td>{d.kind === 'rm' ? 'Roast Me' : 'review'}{d.historical ? ' (historical)' : ''}{!d.historical && d.kind === 'rm' && d.targetMonday ? <div className="field-hint">Week of {d.targetMonday}</div> : null}</td>
                   <td><Pill tone={statusTone(d.status)}>{d.status}</Pill></td>
                   <td>v{d.version}</td>
                   <td>{d.submittedAt ? fmtDate(d.submittedAt) : d.sourcePeriod ?? d.sourceWeek ?? 'Date unavailable'}</td>
@@ -2201,26 +2375,40 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
 }
 
 function CycleControls({ ctx }: { ctx: Ctx }) {
-  const [monday, setMonday] = useState('')
+  // Defaults to the current Los Angeles week; the date field is the override.
+  const thisWeek = losAngelesMonday()
+  const [monday, setMonday] = useState(thisWeek)
   const [isBreak, setIsBreak] = useState(false)
   const [penalty, setPenalty] = useState('10')
   const [reward, setReward] = useState('4')
   if (!ctx.isResearch) return null
+  const cycles = ctx.data.cycles ?? []
+  const current = cycles.find((c) => c.startsOn === thisWeek)
+  const chosen = cycles.find((c) => c.startsOn === monday)
+  const problem = !monday ? 'Choose the Monday this cycle starts on.'
+    : !isMondayIso(monday) ? 'A cycle has to start on a Monday.'
+    : chosen && chosen.isBreak !== isBreak
+      ? `The week of ${monday} is already open as a ${chosen.isBreak ? 'break' : 'working'} week.`
+      : ''
   return (
     <div className="section" style={{ marginTop: 20 }}>
       <h2><Clock size={18} /> Research cycle</h2>
       <div className="card">
+        <p className="muted" style={{ marginBottom: 10 }}>
+          {current
+            ? `This week (${thisWeek}) is open${current.isBreak ? ' as a break week' : ''}.`
+            : `This week (${thisWeek}) has not been opened yet. Teams can already draft a Roast Me for it; opening the cycle is what lets them submit.`}
+        </p>
         <form
           className="row"
           onSubmit={async (e) => {
             e.preventDefault()
-            if (!monday) return alert('Select a Monday.')
-            const date = new Date(monday)
-            if (date.getUTCDay() !== 1) return alert('Please select a Monday.')
-            await ctx.run('openCycle', { monday, isBreak }, 'Cycle opened.')
+            if (problem) return
+            await ctx.run('openCycle', { monday, isBreak },
+              `Opened the week of ${monday}.`)
           }}
         >
-          <Field label="Week of (Monday)">
+          <Field label="Week of (Monday)" hint={monday === thisWeek ? 'Current Los Angeles week.' : 'Manual override.'}>
             <input type="date" value={monday} disabled={ctx.busy}
               onChange={(e) => setMonday(e.target.value)} />
           </Field>
@@ -2229,8 +2417,20 @@ function CycleControls({ ctx }: { ctx: Ctx }) {
               onChange={(e) => setIsBreak(e.target.checked)} />
             Break week
           </label>
-          <button className="btn sm" disabled={ctx.busy || !monday}>Open cycle</button>
+          <button className="btn sm" disabled={ctx.busy || !!problem}>
+            {chosen ? 'Cycle already open' : 'Open cycle'}
+          </button>
+          {monday !== thisWeek ? (
+            <button type="button" className="btn ghost sm" disabled={ctx.busy}
+              onClick={() => setMonday(thisWeek)}>Use this week</button>
+          ) : null}
         </form>
+        {problem ? <p className="field-hint" role="alert">{problem}</p> : null}
+        <p className="field-hint" style={{ marginTop: 10 }}>
+          {cycles.length
+            ? `Open weeks: ${cycles.slice(-6).map((c) => c.startsOn + (c.isBreak ? ' (break)' : '')).join(', ')}`
+            : 'No cycle has been opened yet.'}
+        </p>
       </div>
       <div className="card">
         <div className="between">
@@ -2276,11 +2476,11 @@ function PageAssignments({ ctx }: { ctx: Ctx }) {
     <div>
       <h1 className="section">Review assignments</h1>
       <p className="muted section">
-        Research assigns each reporting memo a reviewer from outside that initiative.
+        Research assigns each Roast Me a reviewer from outside that initiative.
       </p>
 
       <div className="section">
-        <h2>Submitted reporting memos</h2>
+        <h2>Submitted Roast Mes</h2>
         {submittedRm.length ? submittedRm.map((d) => {
           const ini = ctx.data.initiatives.find((i) => i.id === d.initiativeId)
           const existing = reviewObligations.filter((o) => o.targetId === d.id)

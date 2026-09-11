@@ -32,7 +32,10 @@ import type {
 } from './model'
 import { seed, uid, imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 import type { LedgerEvent } from './domain'
-import { appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries } from './domain'
+import {
+  appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries,
+  isMondayIso, losAngelesMonday,
+} from './domain'
 
 const DATA_KEY = 'openlabs:demo:data:v2'
 const USER_KEY = 'openlabs:demo:user:v2'
@@ -108,13 +111,18 @@ export function readProposal(body: string): { category: string; abstract: string
 
 function normalize(d: Data): Data {
   const any = d as unknown as Record<string, unknown>
-  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'audit', 'notifications']) {
+  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'audit', 'notifications', 'cycles']) {
     if (!Array.isArray(any[k])) any[k] = []
   }
   d.people.forEach((p) => { if (!Array.isArray(p.roles)) p.roles = [] })
   const store = ledgerStore(d)
   d.initiatives.forEach((i) => {
     if (!Array.isArray(i.tasks)) i.tasks = []
+    i.tasks.forEach((task) => {
+      const legacy = task as typeof task & { done?: boolean }
+      if (!['planned', 'pending', 'finished'].includes(task.status)) task.status = legacy.done ? 'finished' : 'planned'
+      if (typeof task.description !== 'string') task.description = ''
+    })
     if (typeof i.hp !== 'number') i.hp = HP_START
     if (i.status === 'hold') i.status = 'on_hold'
     else if (i.status === 'closed') i.status = 'stopped'
@@ -384,6 +392,27 @@ const handlers: Record<string, Handler> = {
         : 'Updated their profile details')
   },
 
+  // Retarget an unsubmitted Roast Me draft. Mirrors set_rm_draft_target.
+  setDraftTarget: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const doc = need(d.documents.find((x) => x.id === p.documentId), 'Draft not found.')
+    if (doc.historical) deny('An imported Roast Me cannot be retargeted.')
+    if (doc.kind !== 'rm') deny('Only a Roast Me draft has a target week.')
+    if (doc.status !== 'draft') deny('A submitted Roast Me keeps the week it was submitted for.')
+    if (doc.obligationId) deny('This draft is already attached to an open cycle.')
+    const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
+    if (!ini.members.includes(me.id)) deny('Only the initiative team can retarget this draft.')
+    const monday = String(p.targetMonday ?? '')
+    if (!isMondayIso(monday)) deny('A Roast Me week must start on a Monday.')
+    if (d.documents.some((other) => other.id !== doc.id && !other.historical &&
+      other.kind === 'rm' && other.initiativeId === doc.initiativeId &&
+      other.targetMonday === monday)) {
+      deny('A Roast Me already exists for this initiative and week.')
+    }
+    doc.targetMonday = monday
+    audit(d, me, 'rm.retarget', `Pointed "${doc.title}" at the week of ${monday}`)
+  },
+
   createDraft: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     if (!isApproved(me)) deny('Your account must be approved.')
@@ -391,8 +420,9 @@ const handlers: Record<string, Handler> = {
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
     if (kind === 'rm') {
       if (!ini.members.includes(me.id)) {
-        deny('Only the initiative team can draft a reporting memo.')
+        deny('Only the initiative team can draft a Roast Me.')
       }
+      if (ini.status !== 'active') deny('This initiative is not active.')
     } else {
       const target = need(d.documents.find((doc) => doc.id === p.targetId), 'Reviewed document not found.')
       const targetIni = d.initiatives.find((i) => i.id === target.initiativeId)
@@ -405,13 +435,23 @@ const handlers: Record<string, Handler> = {
       )
       if (!assigned) deny('You have not been assigned this review.')
     }
+    // A Roast Me draft needs no cycle; it just names the week it is meant for.
+    const targetMonday = kind === 'rm'
+      ? (p.targetMonday ? String(p.targetMonday) : losAngelesMonday())
+      : undefined
+    if (kind === 'rm' && !isMondayIso(targetMonday!)) deny('A Roast Me week must start on a Monday.')
+    if (kind === 'rm' && d.documents.some((doc) =>
+      doc.initiativeId === ini.id && doc.kind === 'rm' && doc.status !== 'draft' &&
+      doc.targetMonday === targetMonday)) {
+      deny('A Roast Me already exists for this initiative and week.')
+    }
     const open = d.documents.find((doc) =>
       doc.initiativeId === ini.id && doc.kind === kind && doc.status === 'draft' &&
-      (kind === 'rm' ? true : doc.targetId === p.targetId) &&
+      (kind === 'rm' ? doc.targetMonday === targetMonday : doc.targetId === p.targetId) &&
       (doc.authorId === me.id || (kind === 'rm' && ini.members.includes(me.id))),
     )
-    if (open) return // reuse the team's existing draft
-    const title = String(p.title ?? '').trim() || (kind === 'rm' ? 'Reporting memo' : 'Manual review')
+    if (open) return // reuse the team's existing draft for this week
+    const title = String(p.title ?? '').trim() || (kind === 'rm' ? 'Roast Me' : 'Manual review')
     const doc: DocumentRecord = {
       id: uid(),
       initiativeId: ini.id,
@@ -422,11 +462,12 @@ const handlers: Record<string, Handler> = {
       body: kind === 'rm' ? RM_TEMPLATE : REVIEW_TEMPLATE,
       version: 1,
       targetId: kind === 'review' ? p.targetId : undefined,
+      targetMonday,
       versions: [],
     }
     d.documents.unshift(doc)
     audit(d, me, 'draft.create',
-      `Started ${kind === 'rm' ? 'a reporting memo' : 'a review'} for "${ini.title}" [${ini.id}]`)
+      `Started ${kind === 'rm' ? `a Roast Me for the week of ${targetMonday}` : 'a review'} for "${ini.title}" [${ini.id}]`)
   },
 
   saveDraft: ({ d, actor }, p) => {
@@ -450,7 +491,17 @@ const handlers: Record<string, Handler> = {
     if (doc.status !== 'draft') deny('This document has already been submitted.')
     const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
     if (doc.kind === 'rm') {
-      if (ini.leadId !== me.id) deny('The initiative lead submits the reporting memo.')
+      if (ini.leadId !== me.id) deny('The initiative lead submits the team Roast Me.')
+      // Drafting is free of the cycle; submitting is not. Mirrors submit_rm_draft.
+      const week = doc.targetMonday
+      if (!week) deny('Choose the week this Roast Me is for.')
+      const cycle = (d.cycles ?? []).find((c) => c.startsOn === week)
+      if (!cycle) deny(`The cycle for the week of ${week} is not open yet; Research opens it.`)
+      if (cycle!.isBreak) deny(`The week of ${week} is a break week, so it takes no Roast Me.`)
+      if (d.documents.some((x) => x.id !== doc.id && x.kind === 'rm' && x.status !== 'draft'
+        && x.initiativeId === ini.id && x.targetMonday === week)) {
+        deny('Another Roast Me is already submitted for this week.')
+      }
     } else if (doc.authorId !== me.id) {
       deny('Only the assigned reviewer can submit this review.')
     }
@@ -474,9 +525,12 @@ const handlers: Record<string, Handler> = {
       const obl = d.obligations.find((o) =>
         o.kind === doc.kind && o.assigneeId === assigneeId &&
         o.status !== 'complete' && o.status !== 'waived' &&
-        (doc.kind === 'rm' ? o.initiativeId === ini.id : o.targetId === doc.targetId),
+        (doc.kind === 'rm'
+          ? o.initiativeId === ini.id && losAngelesMonday(new Date(o.due)) === doc.targetMonday
+          : o.targetId === doc.targetId),
       )
       if (obl) {
+        if (doc.kind === 'rm') doc.obligationId = obl.id
         const wasMissed = obl.status === 'missed'
         const lateNoPenalty = !wasMissed && Date.parse(obl.due) < Date.parse(at)
         obl.status = 'complete'
@@ -521,7 +575,7 @@ const handlers: Record<string, Handler> = {
     if (doc.status !== 'submitted') deny('Only a submitted document can be revised.')
     const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
     if (doc.kind === 'rm') {
-      if (ini.leadId !== me.id) deny('The initiative lead revises the reporting memo.')
+      if (ini.leadId !== me.id) deny('The initiative lead revises the team Roast Me.')
     } else if (doc.authorId !== me.id) {
       deny('Only the assigned reviewer can revise this review.')
     }
@@ -586,16 +640,15 @@ const handlers: Record<string, Handler> = {
       `${thread.resolved ? 'Resolved' : 'Re-opened'} a thread on "${doc ? doc.title : thread.documentId}"`)
   },
 
-  toggleTask: ({ d, actor }, p) => {
+  setTaskStatus: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
-    if (!ini.members.includes(me.id) && ini.leadId !== me.id && !isAdmin(me)) {
-      deny('Only the initiative team can update tasks.')
-    }
     const task = need(ini.tasks.find((t) => t.id === p.taskId), 'Task not found.')
-    task.done = !task.done
-    audit(d, me, 'task.toggle',
-      `Marked "${task.title}" ${task.done ? 'done' : 'not done'} on "${ini.title}" [${ini.id}]`)
+    if (ini.leadId !== me.id && task.assigneeId !== me.id && !isAdmin(me)) deny('Task authority required.')
+    const status = String(p.status)
+    if (!['planned', 'pending', 'finished'].includes(status)) deny('Invalid task status.')
+    task.status = status as typeof task.status
+    audit(d, me, 'task.status', `Marked "${task.title}" ${status} on "${ini.title}" [${ini.id}]`)
   },
 
   uploadCover: ({ d, actor }, p) => {
@@ -614,7 +667,7 @@ const handlers: Record<string, Handler> = {
   uploadRmImage: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
-    if (doc.kind !== 'rm') deny('Images attach to reporting memos only.')
+    if (doc.kind !== 'rm') deny('Images attach to a Roast Me only.')
     if (!isResearch(me) && !d.initiatives.some((i) => i.id === doc.initiativeId
       && (i.leadId === me.id || i.members.includes(me.id)))) {
       deny('Only the memo team or Research can attach images.')
@@ -649,7 +702,7 @@ const handlers: Record<string, Handler> = {
     const me = need(actor, 'Sign in first.')
     if (!isResearch(me)) deny('Research required.')
     const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
-    if (doc.kind !== 'rm') deny('Only reporting memos can be revised here.')
+    if (doc.kind !== 'rm') deny('Only a Roast Me can be revised here.')
     if (doc.status !== 'submitted') deny('Only submitted memos can be revised.')
     const reason = String(p.reason || '').trim()
     if (!reason) deny('A revision reason is required.')
@@ -695,8 +748,24 @@ const handlers: Record<string, Handler> = {
     }
     const title = String(p.title ?? '').trim()
     if (!title) deny('Describe the task.')
-    ini.tasks.push({ id: uid(), title, done: false })
+    const assigneeId = p.assigneeId ? String(p.assigneeId) : undefined
+    if (assigneeId && !ini.members.includes(assigneeId)) deny('Assignee must be on the initiative team.')
+    const status = String(p.status ?? 'planned')
+    if (!['planned', 'pending', 'finished'].includes(status)) deny('Invalid task status.')
+    ini.tasks.push({ id: uid(), title, description: String(p.description ?? '').trim(),
+      status: status as 'planned'|'pending'|'finished', assigneeId,
+      dueAt: p.dueAt ? String(p.dueAt) : undefined })
     audit(d, me, 'task.add', `Added task "${title}" to "${ini.title}" [${ini.id}]`)
+  },
+
+  deleteTask: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (ini.leadId !== me.id && !isAdmin(me)) deny('Only the initiative lead or an admin can delete tasks.')
+    const index = ini.tasks.findIndex((t) => t.id === p.taskId)
+    if (index < 0) deny('Task not found.')
+    const [task] = ini.tasks.splice(index, 1)
+    audit(d, me, 'task.delete', `Deleted task "${task.title}" from "${ini.title}" [${ini.id}]`)
   },
 
   assignReview: ({ d, actor }, p) => {
@@ -845,7 +914,7 @@ const handlers: Record<string, Handler> = {
     const isBreak = !!p.isBreak
     const anyD = d as unknown as { cycles?: Record<string, { isBreak: boolean }>, cycle?: { monday: string; isBreak: boolean } }
     if (!anyD.cycles) anyD.cycles = {}
-    
+
     if (monday in anyD.cycles) {
       if (anyD.cycles[monday].isBreak !== isBreak) {
         deny('This cycle was already opened with a different break status.')
@@ -853,11 +922,23 @@ const handlers: Record<string, Handler> = {
     } else {
       anyD.cycles[monday] = { isBreak }
     }
-    
+
     anyD.cycle = { monday, isBreak }
 
+    const bounds = getReviewCycleBoundaries(date)
+    // The opened weeks the UI reads, mirroring public.cycles.
+    if (!Array.isArray(d.cycles)) d.cycles = []
+    if (!d.cycles.some((c) => c.startsOn === monday)) {
+      d.cycles.push({
+        startsOn: monday,
+        isBreak,
+        rmDue: bounds.losAngelesDeadline.toISOString(),
+        reviewDue: bounds.reviewDeadline.toISOString(),
+      })
+      d.cycles.sort((a, b) => a.startsOn.localeCompare(b.startsOn))
+    }
+
     if (!isBreak) {
-      const bounds = getReviewCycleBoundaries(date)
       d.initiatives.filter(i => i.status === 'active').forEach(ini => {
         const lead = d.people.find(x => x.id === ini.leadId)
         if (!lead || lead.status !== 'approved') return

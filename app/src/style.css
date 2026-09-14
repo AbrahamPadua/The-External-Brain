@@ -142,34 +142,12 @@ code {
   min-height: 100vh;
 }
 
-.ol-sidebar {
-  width: 264px;
-  flex: 0 0 264px;
-  background: var(--navy);
-  color: #c7d4de;
-  position: fixed;
-  inset: 0 auto 0 0;
-  display: flex;
-  flex-direction: column;
-  padding: 22px 16px;
-}
-.ol-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #fff;
-  font-weight: 680;
-  font-size: 1.12rem;
-  padding: 6px 8px 20px;
-}
-.ol-brand svg {
-  color: var(--teal);
-}
 .ol-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
+.ol-nav-settings { border-top: 1px solid var(--navy-3); margin-top: 8px; padding-top: 8px; }
 .ol-nav a {
   display: flex;
   align-items: center;
@@ -194,31 +172,24 @@ code {
   height: 17px;
   flex: 0 0 17px;
 }
-.ol-side-foot {
-  margin-top: auto;
-  padding: 12px 8px 0;
-  font-size: 0.8rem;
-  color: #8ba0ad;
-  line-height: 1.5;
-}
-.ol-side-foot .mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--navy-2);
-  color: #d6efec;
-  margin-top: 8px;
-}
-
 .ol-main {
-  margin-left: 264px;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
+.ol-nav-menu { position: relative; }
+.ol-nav-dropdown {
+  display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
+  width: min(264px, calc(100vw - 32px)); padding: 10px; border-radius: 10px;
+  background: var(--navy); color: #c7d4de; box-shadow: 0 12px 32px rgba(0,0,0,.24);
+}
+.ol-nav-dropdown.open { display: block; }
+.ol-nav-toggle {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); cursor: pointer;
+}
+.ol-nav-toggle:hover { background: var(--bg-2); }
 
 .ol-topbar {
   position: sticky;
@@ -253,7 +224,8 @@ code {
 }
 
 .ol-page {
-  padding: 28px;
+  margin: 0 auto;
+  padding: 28px clamp(18px, 4vw, 48px);
   max-width: 1080px;
   width: 100%;
 }
@@ -744,32 +716,8 @@ textarea:focus {
   .ol {
     flex-direction: column;
   }
-  .ol-sidebar {
-    position: static;
-    width: auto;
-    flex: none;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    padding: 12px;
-  }
-  .ol-brand {
-    padding: 0 12px 0 4px;
-  }
-  .ol-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    flex: 1;
-  }
-  .ol-side-foot {
-    margin: 0;
-    padding: 0 8px;
-  }
-  .ol-main {
-    margin-left: 0;
-  }
   .ol-page {
-    padding: 18px;
+    padding: 18px clamp(16px, 4vw, 28px);
   }
 }
 .modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.55);display:grid;place-items:center;padding:20px}

@@ -113,7 +113,7 @@
  * read-only Tiptap Editor after sanitize(); no raw HTML is injected anywhere.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { readProposal, sanitize } from './demo'
@@ -133,7 +133,7 @@ import type { Anchor, TextMap } from './highlight'
 import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
-  Moon, Plus, Save, Send, ShieldCheck, Sparkles, Sun, Trash2, TriangleAlert, UserPlus, X,
+  Menu, Moon, Plus, Save, Send, Settings, ShieldCheck, Sparkles, Sun, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
 type AppProps = {
@@ -400,7 +400,7 @@ function versionsOf(doc: DocumentRecord): { version: number; body: string; at: s
 /**
  * An account whose profile has no name yet - created before signup collected
  * one, or signed in through the returning-member form - still has to render as
- * something. The Profile page is where it gets fixed.
+ * something. The Settings profile section is where it gets fixed.
  */
 const nameOf = (p: Person): string => p.name.trim() || 'Unnamed member'
 
@@ -506,48 +506,57 @@ function Toasts({ error, notice, onClear }: {
 
 // --- shell --------------------------------------------------------------
 
-function Sidebar({ nav, route, mode }: {
+function Sidebar({ nav, route, open, onNavigate }: {
   nav: { to: string; label: string; icon: typeof House; show: boolean }[]
   route: Route
-  mode: 'demo' | 'live'
+  open: boolean
+  onNavigate: () => void
 }) {
+  const settings = nav.find((n) => n.to === '#/settings')
+  const link = (n: typeof nav[number]) => {
+    const target = n.to.replace(/^#\/?/, '').split('/')[0]
+    // `#/profile` remains a supported bookmark for the personal-profile
+    // section, even though Settings is now its permanent home.
+    const active = target === route.name ||
+      (target === 'settings' && route.name === 'profile') ||
+      (target === '' && route.name === '')
+    const Icon = n.icon
+    return (
+      <a key={n.to} href={n.to} className={active ? 'active' : ''} onClick={onNavigate}>
+        <Icon /><span>{n.label}</span>
+      </a>
+    )
+  }
   return (
-    <aside className="ol-sidebar">
-      <div className="ol-brand">
-        <FlaskConical size={20} />
-        <span>Open Labs</span>
+    <nav id="primary-navigation" className={`ol-nav-dropdown ${open ? 'open' : ''}`} aria-label="Primary navigation">
+      <div className="ol-nav">
+        {nav.filter((n) => n.show && n !== settings).map(link)}
       </div>
-      <nav className="ol-nav">
-        {nav.filter((n) => n.show).map((n) => {
-          const target = n.to.replace(/^#\/?/, '').split('/')[0]
-          const active = target === route.name || (target === '' && route.name === '')
-          const Icon = n.icon
-          return (
-            <a key={n.to} href={n.to} className={active ? 'active' : ''}>
-              <Icon /><span>{n.label}</span>
-            </a>
-          )
-        })}
-      </nav>
-      <div className="ol-side-foot">
-        Decoded Brain - UC San Diego
-        <br />
-        <span className="mode">
-          {mode === 'demo' ? 'Demo data (fictional)' : 'Live workspace'}
-        </span>
-      </div>
-    </aside>
+      {settings?.show ? <div className="ol-nav ol-nav-settings">{link(settings)}</div> : null}
+    </nav>
   )
 }
 
-function TopBar({ ctx, dark, onToggleDark }: { ctx: Ctx; dark:boolean; onToggleDark:()=>void }) {
-  const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRef, navMenuRef }: {
+  ctx: Ctx; nav: { to: string; label: string; icon: typeof House; show: boolean }[]; route: Route
+  navOpen: boolean; onToggleNav: () => void; onNavigate: () => void
+  navToggleRef: RefObject<HTMLButtonElement | null>; navMenuRef: RefObject<HTMLDivElement | null>
+}) {
   return (
     <div className="ol-topbar">
+      <div className="ol-nav-menu" ref={navMenuRef}>
+        <button
+          type="button" className="ol-nav-toggle" aria-label={`${navOpen ? 'Close' : 'Open'} navigation`}
+          aria-expanded={navOpen} aria-controls="primary-navigation" onClick={onToggleNav} ref={navToggleRef}
+        >
+          <Menu size={20} />
+        </button>
+        <Sidebar nav={nav} route={route} open={navOpen} onNavigate={onNavigate} />
+      </div>
       <div className="who">
         {ctx.me ? (
           <>
-            <a href="#/profile"><strong>{nameOf(ctx.me)}</strong></a>
+            <a href="#/settings"><strong>{nameOf(ctx.me)}</strong></a>
             {/* One badge set: the account's role, deduplicated. Not a status
                 pill plus a role pill, which read as two conflicting answers. */}
             {accountRoleBadges(ctx.me).map(({ label, tone }) => (
@@ -558,37 +567,7 @@ function TopBar({ ctx, dark, onToggleDark }: { ctx: Ctx; dark:boolean; onToggleD
           <span>Signed-out visitor</span>
         )}
       </div>
-      <div className="row">
-        <button type="button" className="btn ghost sm" aria-pressed={dark} onClick={onToggleDark}
-          title={dark?'Use light appearance':'Use dark appearance'}>
-          {dark?<Sun size={15}/>:<Moon size={15}/>} {dark?'Light':'Dark'}
-        </button>
-        {ctx.mode === 'demo' ? (
-          <Field label="">
-            <select
-              aria-label="View the demo as"
-              value={ctx.userId ?? ''}
-              disabled={ctx.busy}
-              onChange={(e) => ctx.run('switchDemoUser', { userId: e.target.value || null })}
-            >
-              <option value="">Signed-out visitor</option>
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {nameOf(p)} - {accountRoleBadges(p).map((b) => b.label).join(', ')}
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : ctx.me ? (
-          <button className="btn ghost sm" disabled={ctx.busy} onClick={() => ctx.onSignOut()}>
-            <LogOut size={15} /> Sign out
-          </button>
-        ) : (
-          // Signing in and creating an account both live on the sign-in page,
-          // because a new account has to give a name first.
-          <a className="btn sm" href="#/signin"><LogIn size={15} /> Sign in</a>
-        )}
-      </div>
+      <a className="btn ghost sm" href="#/settings"><Settings size={15} /> Settings</a>
     </div>
   )
 }
@@ -686,7 +665,7 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
         ) : null}
         <span className="field-hint">
           {newAccount
-            ? 'New accounts stay pending until Operations or Research approve them. Your details are saved with your account and you can edit them from Profile at any time.'
+            ? 'New accounts stay pending until Operations or Research approve them. Your details are saved with your account and you can edit them from Settings at any time.'
             : 'We email you a sign-in link. Your name, major and interests stay exactly as they are.'}
         </span>
       </form>
@@ -704,7 +683,7 @@ function ProfileNudge({ ctx }: { ctx: Ctx }) {
         Add your name so members and reviewers know who you are. A major and your
         research interests are optional.
       </p>
-      <a className="btn" href="#/profile"><IdCard size={16} /> Open your profile</a>
+      <a className="btn" href="#/settings"><IdCard size={16} /> Open Settings</a>
     </div>
   )
 }
@@ -2125,7 +2104,7 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
       <div className="card">
         <h3>You are signed in</h3>
         <p className="muted">Your name, major and research interests live on your profile.</p>
-        <a className="btn" href="#/profile"><IdCard size={16} /> Open your profile</a>
+        <a className="btn" href="#/settings"><IdCard size={16} /> Open Settings</a>
       </div>
     )
   }
@@ -2143,26 +2122,70 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
   )
 }
 
-function PageProfile({ ctx }: { ctx: Ctx }) {
+function PageSettings({
+  ctx, dark, onToggleDark, actualRoles, previewing, previewRoles, setPreviewRoles,
+}: {
+  ctx: Ctx
+  dark: boolean
+  onToggleDark: () => void
+  actualRoles: string[]
+  previewing: boolean
+  previewRoles: string[] | null
+  setPreviewRoles: (roles: string[] | null) => void
+}) {
   const me = ctx.me
   if (!me) {
     return (
-      <div className="card">
-        <h3>Sign in to see your profile</h3>
-        <p className="muted">Your name, major and research interests belong to your account.</p>
-        <a className="btn" href="#/signin"><LogIn size={16} /> Sign in</a>
+      <div>
+        <div className="section">
+          <h1>Settings</h1>
+          <p className="muted">Choose your appearance or sign in to manage your account.</p>
+        </div>
+        <div className="card">
+          <h3>Appearance</h3>
+          <p className="muted">Use the appearance that is most comfortable for you.</p>
+          <button type="button" className="btn ghost" aria-pressed={dark} onClick={onToggleDark}>
+            {dark ? <Sun size={16} /> : <Moon size={16} />} Use {dark ? 'light' : 'dark'} appearance
+          </button>
+        </div>
+        <div className="card">
+          <h3>Account</h3>
+          {ctx.mode === 'demo' ? (
+            <Field label="View the demo as">
+              <select
+                value={ctx.userId ?? ''}
+                disabled={ctx.busy}
+                onChange={(e) => ctx.run('switchDemoUser', { userId: e.target.value || null })}
+              >
+                <option value="">Signed-out visitor</option>
+                {[...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b))).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {nameOf(p)} - {accountRoleBadges(p).map((b) => b.label).join(', ')}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <>
+              <p className="muted">Sign in to update your personal details and access the workspace.</p>
+              <a className="btn" href="#/signin"><LogIn size={16} /> Sign in</a>
+            </>
+          )}
+        </div>
       </div>
     )
   }
   const email = ctx.authEmail || me.email
+  const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
   return (
     <div>
       <div className="section">
-        <h1>Your profile</h1>
-        <p className="muted">This is how the rest of Decoded Brain sees you.</p>
+        <h1>Settings</h1>
+        <p className="muted">Manage your profile, appearance and account.</p>
       </div>
 
       <div className="card">
+        <h2>Your profile</h2>
         <div className="row">
           <strong>{nameOf(me)}</strong>
           {/* The same single, deduplicated badge set the header shows. */}
@@ -2186,6 +2209,71 @@ function PageProfile({ ctx }: { ctx: Ctx }) {
       {/* Keyed on the account so the form never carries one member's draft edits
           into another member's session on the same browser. */}
       <ProfileForm key={me.id} ctx={ctx} me={me} />
+
+      <div className="card">
+        <h3>Appearance</h3>
+        <p className="muted">Use the appearance that is most comfortable for you.</p>
+        <button type="button" className="btn ghost" aria-pressed={dark} onClick={onToggleDark}>
+          {dark ? <Sun size={16} /> : <Moon size={16} />} Use {dark ? 'light' : 'dark'} appearance
+        </button>
+      </div>
+
+      <div className="card">
+        <h3>Account</h3>
+        <p className="field-hint">
+          Signed in as <strong>{email || 'your account'}</strong>. Account status and roles are managed by Operations or Research.
+        </p>
+        {ctx.mode === 'demo' ? (
+          <Field label="View the demo as">
+            <select
+              value={ctx.userId ?? ''}
+              disabled={ctx.busy}
+              onChange={(e) => ctx.run('switchDemoUser', { userId: e.target.value || null })}
+            >
+              <option value="">Signed-out visitor</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {nameOf(p)} - {accountRoleBadges(p).map((b) => b.label).join(', ')}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <button className="btn danger" disabled={ctx.busy} onClick={() => ctx.onSignOut()}>
+            <LogOut size={16} /> Sign out
+          </button>
+        )}
+      </div>
+
+      {ctx.approved && actualRoles.length > 0 ? (
+        <div className="card">
+          <h3>Role preview</h3>
+          {previewing ? (
+            <>
+              <p className="muted">
+                You are viewing Open Labs as {previewRoles!.length ? previewRoles!.join(' + ') : 'an ordinary Member'}.
+              </p>
+              <button className="btn ghost" disabled={ctx.busy} onClick={() => setPreviewRoles(null)}>Exit preview</button>
+            </>
+          ) : (
+            <>
+              <p className="muted">
+                See the app as a narrower role. This is read-only and does not change your access.
+              </p>
+              <div className="btn-row">
+                <button className="btn ghost sm" disabled={ctx.busy} onClick={() => setPreviewRoles([])}>
+                  View as a Member
+                </button>
+                {actualRoles.filter((r) => r !== 'admin').map((role) => (
+                  <button key={role} className="btn ghost sm" disabled={ctx.busy} onClick={() => setPreviewRoles([role])}>
+                    View as {role} only
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -3350,6 +3438,14 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [navOpen, setNavOpen] = useState(false)
+  const mainRef = useRef<HTMLDivElement>(null)
+  const navToggleRef = useRef<HTMLButtonElement>(null)
+  const navMenuRef = useRef<HTMLDivElement>(null)
+  const closeNavigation = (afterRoute = false) => {
+    setNavOpen(false)
+    requestAnimationFrame(() => (afterRoute ? mainRef.current : navToggleRef.current)?.focus())
+  }
   const [dark,setDark]=useState(()=>localStorage.getItem('openlabs-theme')==='dark'
     ||(localStorage.getItem('openlabs-theme')===null&&window.matchMedia?.('(prefers-color-scheme: dark)').matches))
 
@@ -3360,6 +3456,22 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && navOpen) closeNavigation()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [navOpen])
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (navOpen && event.target instanceof Node && !navMenuRef.current?.contains(event.target)) closeNavigation()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [navOpen])
 
   useEffect(() => {
     if (!notice) return
@@ -3427,9 +3539,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   const nav: { to: string; label: string; icon: typeof House; show: boolean }[] = [
     { to: '#/', label: 'Home', icon: House, show: true },
     { to: '#/catalog', label: 'Catalog', icon: FlaskConical, show: true },
-    // Pending accounts get here too: profile details are how a reviewer knows
-    // who they are looking at.
-    { to: '#/profile', label: 'Profile', icon: IdCard, show: !!me },
     { to: '#/signin', label: 'Sign in', icon: LogIn, show: !me && mode === 'live' },
     { to: '#/notifications', label: unreadCount ? `Inbox (${unreadCount})` : 'Inbox', icon: Bell, show: approved },
     { to: '#/proposals', label: 'Proposals', icon: Sparkles, show: approved },
@@ -3438,6 +3547,8 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: isAdmin },
     { to: '#/health', label: 'Health', icon: HeartPulse, show: approved },
     { to: '#/audit', label: 'Audit', icon: Clock, show: approved },
+    // Settings stays last and is visually pinned above the sidebar footer.
+    { to: '#/settings', label: 'Settings', icon: Settings, show: true },
   ]
 
   function render(): ReactNode {
@@ -3448,7 +3559,12 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
       case '': return <PageHome ctx={ctx} />
       case 'catalog': return <PageCatalog ctx={ctx} />
       case 'signin': return <PageSignIn ctx={ctx} />
-      case 'profile': return <PageProfile ctx={ctx} />
+      case 'settings':
+      case 'profile': return <PageSettings
+        ctx={ctx} dark={dark} onToggleDark={() => setDark((v) => !v)}
+        actualRoles={actualRoles} previewing={previewing} previewRoles={previewRoles}
+        setPreviewRoles={setPreviewRoles}
+      />
       case 'initiative': return <PageInitiative ctx={ctx} />
       case 'document': return <PageDocument ctx={ctx} />
       case 'new-proposal': return <NewProposalForm ctx={ctx} />
@@ -3463,13 +3579,13 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     }
   }
 
-  const narrow = route.name === 'new-proposal' || route.name === 'signin' || route.name === 'profile'
-
+  const narrow = route.name === 'new-proposal' || route.name === 'signin' ||
+    route.name === 'settings' || route.name === 'profile'
   return (
     <div className={`ol ${dark?'theme-dark':''}`}>
-      <Sidebar nav={nav} route={route} mode={mode} />
-      <div className="ol-main">
-        <TopBar ctx={ctx} dark={dark} onToggleDark={()=>setDark(v=>!v)} />
+      <div className="ol-main" ref={mainRef} tabIndex={-1}>
+        <TopBar ctx={ctx} nav={nav} route={route} navOpen={navOpen} navToggleRef={navToggleRef}
+          navMenuRef={navMenuRef} onNavigate={() => closeNavigation(true)} onToggleNav={() => setNavOpen((open) => !open)} />
         {previewing ? (
           <div className="preview-banner" role="status">
             <span>
@@ -3483,28 +3599,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
         ) : null}
         <div className={`ol-page ${narrow ? 'ol-page-narrow' : ''}`}>
           {render()}
-          {/* Offered only to an account that actually holds a grant, and only
-              downward, so a preview can never display more than it really has. */}
-          {approved && actualRoles.length > 0 && !previewing ? (
-            <div className="card" style={{ marginTop: 24 }}>
-              <h3>Preview another role</h3>
-              <p className="muted">
-                See the app as a narrower role would. This is a read-only
-                simulation: it changes nothing, grants nothing, and every action
-                stays disabled until you exit.
-              </p>
-              <div className="btn-row">
-                <button className="btn ghost sm" disabled={busy} onClick={() => setPreviewRoles([])}>
-                  View as a Member
-                </button>
-                {actualRoles.filter((r) => r !== 'admin').map((role) => (
-                  <button key={role} className="btn ghost sm" disabled={busy} onClick={() => setPreviewRoles([role])}>
-                    View as {role} only
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
       <Toasts

@@ -337,6 +337,20 @@ export function accountRoleBadges(
   return roles.map((label) => ({ label, tone: 'info' }))
 }
 
+export function navigationAccess(opts: {
+  approved: boolean
+  isResearch: boolean
+  isOperations: boolean
+  isInitiativeLead: boolean
+}) {
+  const organizational = opts.approved && (opts.isResearch || opts.isOperations)
+  return {
+    accounts: organizational,
+    audit: organizational,
+    joinRequests: opts.approved && (organizational || opts.isInitiativeLead),
+  }
+}
+
 // --- Roast Me weeks -------------------------------------------------------
 //
 // A Roast Me ("RM") is constructive criticism of a team's work. Drafting one is
@@ -3535,6 +3549,9 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
   }
 
   const leads = !!userId && data.initiatives.some((i) => i.leadId === userId)
+  const navAccess = navigationAccess({
+    approved: !!approved, isResearch, isOperations, isInitiativeLead: leads,
+  })
   const unreadCount = userId ? (data.notifications || []).filter((n) => n.userId === userId && !n.readAt).length : 0
   const nav: { to: string; label: string; icon: typeof House; show: boolean }[] = [
     { to: '#/', label: 'Home', icon: House, show: true },
@@ -3542,18 +3559,20 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     { to: '#/signin', label: 'Sign in', icon: LogIn, show: !me && mode === 'live' },
     { to: '#/notifications', label: unreadCount ? `Inbox (${unreadCount})` : 'Inbox', icon: Bell, show: approved },
     { to: '#/proposals', label: 'Proposals', icon: Sparkles, show: approved },
-    { to: '#/requests', label: 'Join requests', icon: UserPlus, show: approved && (isAdmin || leads) },
+    { to: '#/requests', label: 'Join requests', icon: UserPlus, show: navAccess.joinRequests },
     { to: '#/assignments', label: 'Review assignments', icon: ClipboardList, show: isResearch },
-    { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: isAdmin },
+    { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: navAccess.accounts },
     { to: '#/health', label: 'Health', icon: HeartPulse, show: approved },
-    { to: '#/audit', label: 'Audit', icon: Clock, show: approved },
+    { to: '#/audit', label: 'Audit', icon: Clock, show: navAccess.audit },
     // Settings stays last and is visually pinned above the sidebar footer.
     { to: '#/settings', label: 'Settings', icon: Settings, show: true },
   ]
 
   function render(): ReactNode {
     if (GUARDED.has(route.name) && !approved) return <AccessNeeded ctx={ctx} />
-    if (route.name === 'accounts' && !ctx.isAdmin) return <NotFound />
+    if (route.name === 'accounts' && !navAccess.accounts) return <NotFound />
+    if (route.name === 'audit' && !navAccess.audit) return <NotFound />
+    if (route.name === 'requests' && !navAccess.joinRequests) return <NotFound />
     if (route.name === 'assignments' && !ctx.isResearch) return <NotFound />
     switch (route.name) {
       case '': return <PageHome ctx={ctx} />

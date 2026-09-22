@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Open Labs demo review</title></head>
+<body><div id="app"></div><script type="module">
+// Development-only fixture; Vite's production entry does not include this page.
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from '/src/App.tsx';
+import WorkspaceLoader from '/src/WorkspaceLoader.tsx';
+import { seed } from '/src/model.ts';
+import { demoAction } from '/src/demo.ts';
+import '/src/style.css';
+import '/src/studio.css';
+const query = new URLSearchParams(location.search);
+localStorage.setItem('openlabs-theme', query.get('theme') || 'dark');
+function Review() {
+  const [data, setData] = React.useState(() => structuredClone(seed));
+  const [userId, setUserId] = React.useState(query.get('user') || null);
+  return React.createElement(App, { data, userId, mode: 'demo', authEmail: null,
+    onAction: async (name, payload) => {
+      if (name === 'switchDemoUser') setUserId(payload.userId || null);
+      else setData(await demoAction(data, userId, name, payload));
+    }, onSignIn: async () => {}, onSignOut: async () => setUserId(null) });
+}
+createRoot(document.getElementById('app')).render(React.createElement(query.has('loader') ? WorkspaceLoader : Review));
+</script></body></html>

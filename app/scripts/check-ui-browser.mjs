@@ -1,0 +1,86 @@
+// Local fictional-data review using the installed Chrome; no browser dependency.
+import { spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+const output = join(tmpdir(), 'openlabs-ui-evidence')
+mkdirSync(output, { recursive: true })
+const chrome = spawn('C:/Program Files/Google/Chrome/Application/chrome.exe', [
+  '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+  '--remote-debugging-port=0', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'openlabs-browser-'))}`,
+], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+const browserUrl = await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('Chrome startup timed out')), 15000)
+  chrome.on('error', reject)
+  chrome.stderr.on('data', chunk => { const match = String(chunk).match(/DevTools listening on (ws:\/\/\S+)/); if (match) { clearTimeout(timer); resolve(match[1]) } })
+})
+let socket
+try {
+  const origin = new URL(browserUrl).origin.replace('ws:', 'http:')
+  const target = await (await fetch(`${origin}/json/new?about:blank`, { method: 'PUT' })).json()
+  socket = new WebSocket(target.webSocketDebuggerUrl)
+  await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }))
+  let id = 0
+  let onPageLoaded
+  const waiting = new Map()
+  const errors = []
+  socket.addEventListener('message', event => {
+    const message = JSON.parse(event.data)
+    if (message.method === 'Page.loadEventFired') onPageLoaded?.()
+    if (message.id) { const pending = waiting.get(message.id); waiting.delete(message.id); if (message.error) pending?.reject(new Error(JSON.stringify(message.error))); else pending?.resolve(message.result) }
+    if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text)
+  })
+  const call = (method, params = {}) => new Promise((resolve, reject) => { waiting.set(++id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params })) })
+  const evaluate = async expression => { const result = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails)); return result.result.value }
+  await call('Runtime.enable')
+  await call('Page.enable')
+  const results = []
+  for (const [name, width, theme, user, route] of [
+    ['dashboard-dark',1440,'dark','maya',''], ['dashboard-reference',1600,'dark','maya',''], ['dashboard-mobile',390,'dark','maya',''],
+    ['dashboard-tablet',768,'dark','alex',''], ['dashboard-light',1440,'light','sam',''],
+    ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
+    ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
+    ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
+    ['document-mobile',390,'dark','maya','document/rm-sound'],
+    ['accounts-mobile',390,'dark','sam','accounts'],
+    ['loader-mobile',390,'dark','',''], ['loader-reduced',1440,'dark','',''],
+  ]) {
+    await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false })
+    const loader = name.startsWith('loader')
+    await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: name === 'loader-reduced' ? 'reduce' : 'no-preference' }] })
+    const pageLoaded = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Page load timed out')), 15000)
+      onPageLoaded = () => { clearTimeout(timeout); resolve() }
+    })
+    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}#/${route}` })
+    if (!navigation.loaderId) onPageLoaded()
+    await pageLoaded
+    await evaluate(`new Promise((resolve,reject)=>{let tries=0;const check=()=>{if(document.querySelector('${loader ? '.workspace-loader' : '.ol-page'}'))resolve(true);else if(++tries>100)reject('App not ready');else setTimeout(check,100)};check()})`)
+    const state = await evaluate(`({ title: document.querySelector('h1')?.textContent, overflow: document.documentElement.scrollWidth > innerWidth, navVisible: document.querySelector('#primary-navigation') ? getComputedStyle(document.querySelector('#primary-navigation')).display !== 'none' : null, theme: document.querySelector('.ol')?.className })`)
+    if (loader) {
+      state.imageLoaded = await evaluate(`new Promise(resolve=>{const img=document.querySelector('.workspace-loader img');if(img.complete)resolve(img.naturalWidth>0);else {img.onload=()=>resolve(true);img.onerror=()=>resolve(false)}})`)
+      state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
+    }
+    if (width === 390 && !loader) {
+      await evaluate(`document.querySelector('.ol-nav-toggle').click()`)
+      state.menuOpens = await evaluate(`getComputedStyle(document.querySelector('#primary-navigation')).display !== 'none'`)
+      await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+      await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+      state.menuCloses = await evaluate(`getComputedStyle(document.querySelector('#primary-navigation')).display === 'none'`)
+    }
+    const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+    writeFileSync(join(output, `${name}.png`), Buffer.from(screenshot.data, 'base64'))
+    results.push({ name, width, ...state })
+  }
+  const asset = await evaluate(`document.querySelector('.workspace-loader img').src`)
+  const assetLoaded = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('SVG load timed out')), 10000)
+    onPageLoaded = () => { clearTimeout(timeout); resolve() }
+  })
+  await call('Page.navigate', { url: asset })
+  await assetLoaded
+  const reducedMotionStopsSvg = await evaluate(`Array.from(document.querySelectorAll('.fire-apical,.fire-lateral,.fire-basal,.soma-element,.bouton-spark')).every(node => getComputedStyle(node).animationName === 'none')`)
+  writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors, reducedMotionStopsSvg }, null, 2))
+  console.log(JSON.stringify({ output, results, errors, reducedMotionStopsSvg }, null, 2))
+  if (!reducedMotionStopsSvg || errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false)) process.exitCode = 1
+} finally { socket?.close(); chrome.kill() }

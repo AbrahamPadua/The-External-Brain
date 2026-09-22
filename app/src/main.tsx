@@ -1,12 +1,14 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react'
 import {createRoot} from 'react-dom/client'
 import App from './App'
+import WorkspaceLoader from './WorkspaceLoader'
 import {configured,supabase} from './client'
 import {loadLive,liveAction,rememberSignup} from './live'
 import {demoAction} from './demo'
 import {seed,normalizeProfileDetails,profileDetailsError} from './model'
 import type {Data,ProfileDetails} from './model'
 import './style.css'
+import './studio.css'
 const DEMO_KEY='open-labs-demo-v1'
 const blank:Data={people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[]}
 function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KEY)||'null');if(saved?.people&&saved?.initiatives&&saved?.audit)return saved}catch{/* recover corrupted local demo */}return structuredClone(seed)}
@@ -60,7 +62,7 @@ function Root(){
  if(signup)rememberSignup(email,signup)
  }
  async function signOut(){if(supabase){const {error}=await supabase.auth.signOut();if(error)throw error}setUserId(null);setAuthEmail(null)}
- if(loading)return <div className="connection-state"><h1>Open Labs</h1><p>Opening your workspace…</p></div>
+ if(loading)return <WorkspaceLoader />
  if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setLoading(true);void refresh(userId)}}>Try again</button></div>
  return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onSignOut={signOut} authEmail={authEmail}/>
 }

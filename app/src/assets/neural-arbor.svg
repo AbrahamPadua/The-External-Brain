@@ -1,0 +1,326 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="w-full h-full relative z-10 overflow-visible" fill="none" viewBox="0 0 640 480">
+<style>
+
+
+    /* Organic Dash Stroke Travel for Neural Branch Propagation */
+    @keyframes travelFast {
+      0% {
+        stroke-dashoffset: 400;
+        opacity: 0.15;
+      }
+      20% {
+        opacity: 1;
+      }
+      80% {
+        opacity: 0.95;
+      }
+      100% {
+        stroke-dashoffset: 0;
+        opacity: 0.2;
+      }
+    }
+
+    @keyframes travelMedium {
+      0% {
+        stroke-dashoffset: 550;
+        opacity: 0.1;
+      }
+      30% {
+        opacity: 1;
+      }
+      85% {
+        opacity: 0.9;
+      }
+      100% {
+        stroke-dashoffset: 0;
+        opacity: 0.15;
+      }
+    }
+
+    @keyframes travelSlow {
+      0% {
+        stroke-dashoffset: 700;
+        opacity: 0.1;
+      }
+      40% {
+        opacity: 1;
+      }
+      90% {
+        opacity: 0.85;
+      }
+      100% {
+        stroke-dashoffset: 0;
+        opacity: 0.1;
+      }
+    }
+
+    /* Organic Outward Growth Pulse */
+    @keyframes branchPulse {
+      0%, 100% {
+        filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6)) drop-shadow(0 0 10px rgba(239, 68, 68, 0.4));
+      }
+      50% {
+        filter: drop-shadow(0 0 8px rgba(251, 113, 133, 0.9)) drop-shadow(0 0 18px rgba(245, 158, 11, 0.7));
+      }
+    }
+
+    /* Soma Core Respiration */
+    @keyframes somaBreathing {
+      0%, 100% {
+        transform: scale(0.96);
+        filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.85)) drop-shadow(0 0 24px rgba(239, 68, 68, 0.6));
+      }
+      50% {
+        transform: scale(1.1);
+        filter: drop-shadow(0 0 22px rgba(253, 224, 71, 0.95)) drop-shadow(0 0 38px rgba(251, 113, 133, 0.85));
+      }
+    }
+
+    /* Terminal Synaptic Bouton Sparks */
+    @keyframes boutonBlink {
+      0%, 100% {
+        opacity: 0.35;
+        transform: scale(0.85);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.35);
+      }
+    }
+
+    /* Gradient Progress Bar Shimmer */
+    @keyframes progressSweep {
+      0% {
+        background-position: -200% 0;
+      }
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    .fire-apical {
+      stroke-dasharray: 180 300;
+      animation: travelFast 2.8s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+    }
+
+    .fire-lateral {
+      stroke-dasharray: 220 340;
+      animation: travelMedium 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      animation-delay: 0.45s;
+    }
+
+    .fire-basal {
+      stroke-dasharray: 140 260;
+      animation: travelSlow 3.2s ease-in-out infinite;
+      animation-delay: 0.8s;
+    }
+
+    .fire-fast-spur {
+      stroke-dasharray: 90 200;
+      animation: travelFast 2.2s linear infinite;
+      animation-delay: 0.2s;
+    }
+
+    .soma-element {
+      transform-origin: 320px 305px;
+      animation: somaBreathing 2.4s ease-in-out infinite;
+    }
+
+    .bouton-spark {
+      animation: boutonBlink 1.8s ease-in-out infinite alternate;
+    }
+
+    .tree-glow-wrap {
+      animation: branchPulse 4.5s ease-in-out infinite;
+    }
+
+    .progress-bar-shimmer {
+      background-size: 200% 100%;
+      animation: progressSweep 2.8s linear infinite;
+    }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+<defs><!-- Bioluminescent Glow Filter -->
+<filter height="200%" id="neuralGlow" width="200%" x="-50%" y="-50%">
+<feGaussianBlur in="SourceGraphic" result="blur1" stdDeviation="3.5"></feGaussianBlur>
+<feGaussianBlur in="SourceGraphic" result="blur2" stdDeviation="8"></feGaussianBlur>
+<feMerge>
+<feMergeNode in="blur2"></feMergeNode>
+<feMergeNode in="blur1"></feMergeNode>
+<feMergeNode in="SourceGraphic"></feMergeNode>
+</feMerge>
+</filter>
+<!-- Intense Soma Core Glow -->
+<filter height="220%" id="coreGlow" width="220%" x="-60%" y="-60%">
+<feGaussianBlur in="SourceGraphic" result="blur" stdDeviation="6"></feGaussianBlur>
+<feMerge>
+<feMergeNode in="blur"></feMergeNode>
+<feMergeNode in="SourceGraphic"></feMergeNode>
+</feMerge>
+</filter>
+<!-- Vivid Pink to Deep Crimson & Electric Cyan Accents for Left Trunks -->
+<linearGradient id="gradAmberToPinkL" x1="100%" x2="0%" y1="100%" y2="0%">
+<stop offset="0%" stop-color="#FDA4AF"></stop>
+<stop offset="25%" stop-color="#FB7185"></stop>
+<stop offset="55%" stop-color="#F43F5E"></stop>
+<stop offset="85%" stop-color="#EF4444"></stop>
+<stop offset="100%" stop-color="#00daf3"></stop>
+</linearGradient>
+<!-- Vivid Pink to Radiant Red & Electric Blue Accents for Right Trunks -->
+<linearGradient id="gradAmberToPinkR" x1="0%" x2="100%" y1="100%" y2="0%">
+<stop offset="0%" stop-color="#FDA4AF"></stop>
+<stop offset="30%" stop-color="#FB7185"></stop>
+<stop offset="60%" stop-color="#F43F5E"></stop>
+<stop offset="85%" stop-color="#DC2626"></stop>
+<stop offset="100%" stop-color="#1259F3"></stop>
+</linearGradient>
+<!-- Apical Trunk Pure Electric Pink to Deep Crimson Gradient -->
+<linearGradient id="gradApical" x1="50%" x2="50%" y1="100%" y2="0%">
+<stop offset="0%" stop-color="#FDA4AF"></stop>
+<stop offset="25%" stop-color="#FB7185"></stop>
+<stop offset="60%" stop-color="#F43F5E"></stop>
+<stop offset="85%" stop-color="#E11D48"></stop>
+<stop offset="100%" stop-color="#BE123C"></stop>
+</linearGradient>
+<!-- Core Soma Gradient: Electric White to Rose to Fiery Crimson -->
+<radialGradient cx="45%" cy="45%" id="somaCoreRadial" r="55%">
+<stop offset="0%" stop-color="#FFFFFF"></stop>
+<stop offset="25%" stop-color="#FFE4E6"></stop>
+<stop offset="55%" stop-color="#FB7185"></stop>
+<stop offset="80%" stop-color="#E11D48"></stop>
+<stop offset="100%" stop-color="#881337"></stop>
+</radialGradient></defs>
+<!-- LAYER 1: Deep Dark Anatomical Dendritic Scaffold (Dark Carbon Silhouette like in Image 5) -->
+<g stroke="#141c2c" stroke-linecap="round" stroke-linejoin="round">
+<!-- Axon & Basal Projections downward (Originating from Soma at 320, 305) -->
+<path d="M 320 315 Q 315 365 318 410 Q 320 440 326 462" stroke-width="4.5"></path>
+<path d="M 318 355 Q 290 375 265 385 Q 240 392 225 390" stroke-width="3"></path>
+<path d="M 265 385 Q 272 415 280 445" stroke-width="2.2"></path>
+<path d="M 318 375 Q 300 405 292 440" stroke-width="2.4"></path>
+<path d="M 319 415 Q 328 440 338 460" stroke-width="2"></path>
+<path d="M 320 360 Q 355 375 385 385 Q 412 395 435 398" stroke-width="2.8"></path>
+<path d="M 355 375 Q 365 410 368 442" stroke-width="2"></path>
+<!-- Primary Left Hemispheric Trunk & Cortical Silhouetted Branches -->
+<path d="M 315 300 Q 260 290 205 245 Q 168 215 130 205 Q 90 195 55 210" stroke-width="5.5"></path>
+<path d="M 205 245 Q 160 265 125 305 Q 105 330 88 355" stroke-width="3.6"></path>
+<path d="M 125 305 Q 102 332 80 362" stroke-width="2.2"></path>
+<path d="M 130 205 Q 105 245 82 285 Q 70 310 60 338" stroke-width="3"></path>
+<path d="M 82 285 Q 65 305 48 328" stroke-width="1.8"></path>
+<path d="M 55 210 Q 40 240 30 275 Q 25 295 20 320" stroke-width="2.4"></path>
+<path d="M 30 275 Q 16 295 10 310" stroke-width="1.5"></path>
+<!-- Apical Trunk (Main Stem Reaching Upward forming superior crown) -->
+<path d="M 315 295 Q 290 240 268 185 Q 250 135 238 88 Q 232 60 228 32" stroke-width="5.2"></path>
+<path d="M 268 185 Q 235 150 200 120 Q 170 95 142 68 Q 125 52 110 42" stroke-width="3.4"></path>
+<path d="M 200 120 Q 182 78 165 45" stroke-width="2.2"></path>
+<path d="M 238 88 Q 210 60 182 38" stroke-width="2.2"></path>
+<path d="M 238 88 Q 255 58 268 30" stroke-width="2.2"></path>
+<!-- Left Upper Cerebrum Projections -->
+<path d="M 205 245 Q 208 198 208 145 Q 204 108 198 70" stroke-width="3.6"></path>
+<path d="M 208 198 Q 175 170 148 142 Q 120 115 95 92" stroke-width="2.8"></path>
+<path d="M 148 142 Q 130 100 115 68" stroke-width="2"></path>
+<path d="M 130 205 Q 108 168 80 135 Q 58 108 42 85" stroke-width="2.5"></path>
+<path d="M 80 135 Q 52 122 30 112" stroke-width="1.8"></path>
+<!-- Primary Right Hemispheric Trunk & Parietal/Occipital Lobe Arbor -->
+<path d="M 328 302 Q 375 290 422 268 Q 470 245 515 245 Q 550 252 575 270" stroke-width="5.2"></path>
+<path d="M 422 268 Q 452 218 475 170 Q 498 122 515 75" stroke-width="3.6"></path>
+<path d="M 475 170 Q 510 160 538 160 Q 568 165 592 188" stroke-width="2.5"></path>
+<path d="M 515 245 Q 540 212 562 180" stroke-width="2.2"></path>
+<path d="M 515 245 Q 538 278 560 310 Q 578 332 590 355" stroke-width="2.6"></path>
+<path d="M 538 278 Q 555 305 572 332" stroke-width="1.8"></path>
+<path d="M 422 268 Q 428 312 435 350" stroke-width="2.2"></path>
+<!-- Superior Central Crest -->
+<path d="M 320 295 Q 328 225 338 168 Q 346 115 355 62 Q 360 35 365 20" stroke-width="4.4"></path>
+<path d="M 338 168 Q 375 130 410 98 Q 438 72 468 50" stroke-width="3.2"></path>
+<path d="M 410 98 Q 422 62 432 35" stroke-width="2"></path>
+<path d="M 346 115 Q 388 78 418 45" stroke-width="2.2"></path>
+<path d="M 328 225 Q 358 192 392 170 Q 425 148 455 132" stroke-width="2.8"></path>
+</g>
+<!-- LAYER 2: Vivid Active Bioluminescent Arbor with Varied Organic Propagation Speeds -->
+<g class="tree-glow-wrap" filter="url(#neuralGlow)" stroke-linecap="round" stroke-linejoin="round">
+<!-- Basal Axonal Projections (Firing downward with basal timing) -->
+<g stroke="url(#gradAmberToPinkR)">
+<path class="fire-basal" d="M 320 315 Q 315 365 318 410 Q 320 440 326 462" stroke-width="4.8"></path>
+<path class="fire-basal" d="M 318 355 Q 290 375 265 385 Q 240 392 225 390" stroke-width="3.2"></path>
+<path class="fire-fast-spur" d="M 265 385 Q 272 415 280 445" stroke-width="2.2"></path>
+<path class="fire-basal" d="M 318 375 Q 300 405 292 440" stroke-width="2.4"></path>
+<path class="fire-fast-spur" d="M 319 415 Q 328 440 338 460" stroke-width="2"></path>
+<path class="fire-basal" d="M 320 360 Q 355 375 385 385 Q 412 395 435 398" stroke-width="2.8"></path>
+<path class="fire-fast-spur" d="M 355 375 Q 365 410 368 442" stroke-width="2"></path>
+</g>
+<!-- Left Cortical Dendrites (Vivid fiery amber/red/crimson with lateral travel timings) -->
+<g stroke="url(#gradAmberToPinkL)">
+<path class="fire-lateral" d="M 315 300 Q 260 290 205 245 Q 168 215 130 205 Q 90 195 55 210" stroke-width="5.8"></path>
+<path class="fire-lateral" d="M 205 245 Q 160 265 125 305 Q 105 330 88 355" stroke-width="3.8"></path>
+<path class="fire-fast-spur" d="M 125 305 Q 102 332 80 362" stroke-width="2.4"></path>
+<path class="fire-lateral" d="M 130 205 Q 105 245 82 285 Q 70 310 60 338" stroke-width="3"></path>
+<path class="fire-fast-spur" d="M 82 285 Q 65 305 48 328" stroke-width="2"></path>
+<path class="fire-lateral" d="M 55 210 Q 40 240 30 275 Q 25 295 20 320" stroke-width="2.5"></path>
+<path class="fire-fast-spur" d="M 30 275 Q 16 295 10 310" stroke-width="1.8"></path>
+<!-- Left Upper Branches -->
+<path class="fire-lateral" d="M 205 245 Q 208 198 208 145 Q 204 108 198 70" stroke-width="3.8"></path>
+<path class="fire-fast-spur" d="M 208 198 Q 175 170 148 142 Q 120 115 95 92" stroke-width="3"></path>
+<path class="fire-fast-spur" d="M 148 142 Q 130 100 115 68" stroke-width="2.2"></path>
+<path class="fire-lateral" d="M 130 205 Q 108 168 80 135 Q 58 108 42 85" stroke-width="2.8"></path>
+<path class="fire-fast-spur" d="M 80 135 Q 52 122 30 112" stroke-width="2"></path>
+</g>
+<!-- Apical Trunk & Superior Crest (Faster primary nerve trunk) -->
+<g stroke="url(#gradApical)">
+<path class="fire-apical" d="M 315 295 Q 290 240 268 185 Q 250 135 238 88 Q 232 60 228 32" stroke-width="5.5"></path>
+<path class="fire-apical" d="M 268 185 Q 235 150 200 120 Q 170 95 142 68 Q 125 52 110 42" stroke-width="3.6"></path>
+<path class="fire-fast-spur" d="M 200 120 Q 182 78 165 45" stroke-width="2.4"></path>
+<path class="fire-fast-spur" d="M 238 88 Q 210 60 182 38" stroke-width="2.4"></path>
+<path class="fire-fast-spur" d="M 238 88 Q 255 58 268 30" stroke-width="2.2"></path>
+<!-- Superior Crest Branches -->
+<path class="fire-apical" d="M 320 295 Q 328 225 338 168 Q 346 115 355 62 Q 360 35 365 20" stroke-width="4.6"></path>
+<path class="fire-apical" d="M 338 168 Q 375 130 410 98 Q 438 72 468 50" stroke-width="3.4"></path>
+<path class="fire-fast-spur" d="M 410 98 Q 422 62 432 35" stroke-width="2.2"></path>
+<path class="fire-fast-spur" d="M 346 115 Q 388 78 418 45" stroke-width="2.4"></path>
+<path class="fire-apical" d="M 328 225 Q 358 192 392 170 Q 425 148 455 132" stroke-width="3"></path>
+</g>
+<!-- Right Hemispheric Arbor (Fiery amber to rose and electric cyan) -->
+<g stroke="url(#gradAmberToPinkR)">
+<path class="fire-lateral" d="M 328 302 Q 375 290 422 268 Q 470 245 515 245 Q 550 252 575 270" stroke-width="5.5"></path>
+<path class="fire-apical" d="M 422 268 Q 452 218 475 170 Q 498 122 515 75" stroke-width="3.8"></path>
+<path class="fire-fast-spur" d="M 475 170 Q 510 160 538 160 Q 568 165 592 188" stroke-width="2.6"></path>
+<path class="fire-fast-spur" d="M 515 245 Q 540 212 562 180" stroke-width="2.4"></path>
+<path class="fire-lateral" d="M 515 245 Q 538 278 560 310 Q 578 332 590 355" stroke-width="2.8"></path>
+<path class="fire-fast-spur" d="M 538 278 Q 555 305 572 332" stroke-width="2"></path>
+<path class="fire-lateral" d="M 422 268 Q 428 312 435 350" stroke-width="2.4"></path>
+</g>
+</g>
+<!-- LAYER 3: Active Terminal Boutons / Synaptic Growth Cones (Image 5 style bright firing nodes) -->
+<g fill="#FFFFFF" stroke="#EF4444" stroke-width="1.8">
+<circle class="bouton-spark" cx="228" cy="32" r="4.2"></circle>
+<circle class="bouton-spark" cx="268" cy="30" r="3.6" style="animation-delay: 0.3s;"></circle>
+<circle class="bouton-spark" cx="182" cy="38" r="3.5" style="animation-delay: 0.7s;"></circle>
+<circle class="bouton-spark" cx="110" cy="42" r="4" style="animation-delay: 1.1s;"></circle>
+<circle class="bouton-spark" cx="42" cy="85" r="3.8" style="animation-delay: 0.5s;"></circle>
+<circle class="bouton-spark" cx="10" cy="310" r="3.5" style="animation-delay: 0.9s;"></circle>
+<circle class="bouton-spark" cx="80" cy="362" r="3.8" style="animation-delay: 0.2s;"></circle>
+<circle class="bouton-spark" cx="365" cy="20" r="4.2" style="animation-delay: 0.6s;"></circle>
+<circle class="bouton-spark" cx="432" cy="35" r="3.6" style="animation-delay: 1.2s;"></circle>
+<circle class="bouton-spark" cx="468" cy="50" r="3.8" style="animation-delay: 0.4s;"></circle>
+<circle class="bouton-spark" cx="515" cy="75" r="4.2" style="animation-delay: 0.8s;"></circle>
+<circle class="bouton-spark" cx="592" cy="188" r="4" style="animation-delay: 1.4s;"></circle>
+<circle class="bouton-spark" cx="575" cy="270" r="4.2" style="animation-delay: 0.3s;"></circle>
+<circle class="bouton-spark" cx="590" cy="355" r="3.6" style="animation-delay: 0.7s;"></circle>
+<circle class="bouton-spark" cx="326" cy="462" r="4.2" style="animation-delay: 0.5s;"></circle>
+<circle class="bouton-spark" cx="280" cy="445" r="3.5" style="animation-delay: 1.0s;"></circle>
+<circle class="bouton-spark" cx="368" cy="442" r="3.6" style="animation-delay: 0.8s;"></circle>
+</g>
+<!-- LAYER 4: The Central Pyramidal Soma Core (Radiating vivid gold & fire) -->
+<g class="soma-element"><!-- Outer Perisomatic Halo in Electric Rose -->
+<circle cx="320" cy="305" fill="#FB7185" fill-opacity="0.32" filter="url(#coreGlow)" r="28"></circle>
+<!-- Biological Multipolar Pyramidal Soma Body -->
+<path d="M 314 286
+                   C 322 284, 329 287, 335 293
+                   C 342 300, 344 308, 340 316
+                   C 334 324, 325 328, 316 329
+                   C 306 329, 298 322, 296 313
+                   C 294 303, 303 289, 314 286 Z" fill="url(#somaCoreRadial)" filter="url(#coreGlow)" stroke="#FFE4E6" stroke-width="2"></path>
+<!-- Soma Nucleus Core -->
+<ellipse cx="318" cy="306" fill="#E11D48" rx="8" ry="7"></ellipse>
+<circle cx="317" cy="305" fill="#FFFFFF" r="3.8"></circle>
+<circle cx="322" cy="302" fill="#FDA4AF" r="1.6"></circle></g>
+</svg>

@@ -1,0 +1,131 @@
+{
+  "results": [
+    {
+      "name": "dashboard-dark",
+      "width": 1440,
+      "title": "Welcome, Maya",
+      "overflow": false,
+      "navVisible": true,
+      "theme": "ol theme-dark"
+    },
+    {
+      "name": "dashboard-reference",
+      "width": 1600,
+      "title": "Welcome, Maya",
+      "overflow": false,
+      "navVisible": true,
+      "theme": "ol theme-dark"
+    },
+    {
+      "name": "dashboard-mobile",
+      "width": 390,
+      "title": "Welcome, Maya",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "dashboard-tablet",
+      "width": 768,
+      "title": "Welcome, Alex",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark"
+    },
+    {
+      "name": "dashboard-light",
+      "width": 1440,
+      "title": "Welcome, Sam",
+      "overflow": false,
+      "navVisible": true,
+      "theme": "ol "
+    },
+    {
+      "name": "catalog-mobile",
+      "width": 390,
+      "title": "Research catalog",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "settings-mobile",
+      "width": 390,
+      "title": "Settings",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "initiative-dark",
+      "width": 1440,
+      "title": "Spatial Sound Lab",
+      "overflow": false,
+      "navVisible": true,
+      "theme": "ol theme-dark"
+    },
+    {
+      "name": "visitor-mobile",
+      "width": 390,
+      "title": "A shared workspace for student research.",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "accounts-dark",
+      "width": 1440,
+      "title": "Accounts",
+      "overflow": false,
+      "navVisible": true,
+      "theme": "ol theme-dark"
+    },
+    {
+      "name": "document-mobile",
+      "width": 390,
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "accounts-mobile",
+      "width": 390,
+      "title": "Accounts",
+      "overflow": false,
+      "navVisible": false,
+      "theme": "ol theme-dark",
+      "menuOpens": true,
+      "menuCloses": true
+    },
+    {
+      "name": "loader-mobile",
+      "width": 390,
+      "title": "Linking neurons together...",
+      "overflow": false,
+      "navVisible": null,
+      "imageLoaded": true,
+      "reducedMotion": false
+    },
+    {
+      "name": "loader-reduced",
+      "width": 1440,
+      "title": "Linking neurons together...",
+      "overflow": false,
+      "navVisible": null,
+      "imageLoaded": true,
+      "reducedMotion": true
+    }
+  ],
+  "errors": [],
+  "reducedMotionStopsSvg": true
+}

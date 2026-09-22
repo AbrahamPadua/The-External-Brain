@@ -536,7 +536,7 @@ function Sidebar({ nav, route, open, onNavigate }: {
       (target === '' && route.name === '')
     const Icon = n.icon
     return (
-      <a key={n.to} href={n.to} className={active ? 'active' : ''} onClick={onNavigate}>
+      <a key={n.to} href={n.to} className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={onNavigate}>
         <Icon /><span>{n.label}</span>
       </a>
     )
@@ -558,14 +558,24 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
 }) {
   return (
     <div className="ol-topbar">
-      <div className="ol-nav-menu" ref={navMenuRef}>
-        <button
-          type="button" className="ol-nav-toggle" aria-label={`${navOpen ? 'Close' : 'Open'} navigation`}
-          aria-expanded={navOpen} aria-controls="primary-navigation" onClick={onToggleNav} ref={navToggleRef}
-        >
-          <Menu size={20} />
-        </button>
-        <Sidebar nav={nav} route={route} open={navOpen} onNavigate={onNavigate} />
+      <div className="ol-brand-group">
+        <div className="ol-nav-menu" ref={navMenuRef}>
+          <button
+            type="button" className="ol-nav-toggle" aria-label={`${navOpen ? 'Close' : 'Open'} navigation`}
+            aria-expanded={navOpen} aria-controls="primary-navigation" onClick={onToggleNav} ref={navToggleRef}
+          >
+            <Menu size={20} />
+          </button>
+          <Sidebar nav={nav} route={route} open={navOpen} onNavigate={onNavigate} />
+        </div>
+        <div className="ol-brand">
+          <svg className="ol-brand-waveform" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M2 13h3l2-7 4 15 3-10 2 6 3-4h3" />
+          </svg>
+          <span className="ol-brand-title">Open Labs</span>
+          <span className="ol-brand-divider">/</span>
+          <span className="ol-brand-sub">Decoded Brain</span>
+        </div>
       </div>
       <div className="who">
         {ctx.me ? (
@@ -2526,60 +2536,100 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   }
 
   return (
-    <div>
-      <div className="section">
+    <div className="dashboard">
+      <section className="dashboard-section dashboard-welcome">
+        <span className="dashboard-eyebrow">MEMBER WORKSPACE</span>
         <h1>Welcome, {nameOf(me).split(' ')[0]}</h1>
         <p className="muted">Here is what is waiting on you this week.</p>
-      </div>
+      </section>
 
-      <ProfileNudge ctx={ctx} />
+      <section className="dashboard-section dashboard-nudge">
+        <ProfileNudge ctx={ctx} />
+      </section>
 
-      <div className="section">
-        <h2><Inbox size={18} /> Your Roast Mes</h2>
-        {myRm.length
-          ? myRm.map((o) => <ObligationRow key={o.id} ctx={ctx} ob={o} />)
-          : <Empty>No Roast Me due right now. You can still start one from your initiative’s Documents tab.</Empty>}
-      </div>
+      <section className="dashboard-section dashboard-rm" aria-labelledby="rm-heading">
+        <header className="dashboard-section-header">
+          <h2 id="rm-heading"><Inbox size={18} /> Your Roast Mes</h2>
+          <span className="dashboard-badge">{myRm.length}</span>
+        </header>
+        {myRm.length ? (
+          <div className="dashboard-list">
+            {myRm.map((o) => (
+              <div className="dashboard-row-wrap" key={o.id}>
+                <ObligationRow ctx={ctx} ob={o} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty>No Roast Me due right now. You can still start one from your initiative’s Documents tab.</Empty>
+        )}
+      </section>
 
-      <div className="section">
-        <h2><ClipboardList size={18} /> Your reviews</h2>
-        {myReviews.length
-          ? myReviews.map((o) => <ObligationRow key={o.id} ctx={ctx} ob={o} />)
-          : <Empty>No manual reviews assigned to you.</Empty>}
-      </div>
+      <section className="dashboard-section dashboard-reviews" aria-labelledby="reviews-heading">
+        <header className="dashboard-section-header">
+          <h2 id="reviews-heading"><ClipboardList size={18} /> Your reviews</h2>
+          <span className="dashboard-badge">{myReviews.length}</span>
+        </header>
+        {myReviews.length ? (
+          <div className="dashboard-list">
+            {myReviews.map((o) => (
+              <div className="dashboard-row-wrap" key={o.id}>
+                <ObligationRow ctx={ctx} ob={o} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty>No manual reviews assigned to you.</Empty>
+        )}
+      </section>
 
       {decisions.length ? (
-        <div className="section">
-          <h2><ShieldCheck size={18} /> Decisions waiting on you</h2>
-          <ul>{decisions}</ul>
-        </div>
+        <section className="dashboard-section dashboard-decisions" aria-labelledby="decisions-heading">
+          <header className="dashboard-section-header">
+            <h2 id="decisions-heading"><ShieldCheck size={18} /> Decisions waiting on you</h2>
+            <span className="dashboard-badge dashboard-badge-coral">{decisions.length}</span>
+          </header>
+          <ul className="dashboard-decision-list">{decisions}</ul>
+        </section>
       ) : null}
 
       {openThreads.length ? (
-        <div className="section">
-          <h2><MessageSquare size={18} /> Open comment threads</h2>
-          {openThreads.map((t) => {
-            const doc = data.documents.find((x) => x.id === t.documentId)
-            return (
-              <div className="card" key={t.id}>
-                <div className="between">
-                  <span>&ldquo;{t.quote}&rdquo;</span>
-                  <a className="btn ghost sm" href={`#/document/${t.documentId}`}>Open {doc?.title}</a>
+        <section className="dashboard-section dashboard-threads" aria-labelledby="threads-heading">
+          <header className="dashboard-section-header">
+            <h2 id="threads-heading"><MessageSquare size={18} /> Open comment threads</h2>
+            <span className="dashboard-badge">{openThreads.length}</span>
+          </header>
+          <div className="dashboard-threads-list">
+            {openThreads.map((t) => {
+              const doc = data.documents.find((x) => x.id === t.documentId)
+              return (
+                <div className="card dashboard-thread-card" key={t.id}>
+                  <div className="between">
+                    <span className="dashboard-thread-quote">&ldquo;{t.quote}&rdquo;</span>
+                    <a className="btn ghost sm" href={`#/document/${t.documentId}`}>Open {doc?.title}</a>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </section>
       ) : null}
 
-      <div className="section">
-        <h2><FlaskConical size={18} /> Your initiatives</h2>
+      <section className="dashboard-section dashboard-initiatives" aria-labelledby="initiatives-heading">
+        <header className="dashboard-section-header">
+          <h2 id="initiatives-heading"><FlaskConical size={18} /> Your initiatives</h2>
+          <span className="dashboard-badge">{myInitiatives.length}</span>
+        </header>
         {myInitiatives.length ? (
-          <div className="card-grid">
-            {myInitiatives.map((i) => <InitiativeCard key={i.id} ctx={ctx} ini={i} />)}
+          <div className="card-grid dashboard-initiatives-grid">
+            {myInitiatives.map((i) => (
+              <div className="dashboard-card-wrap" key={i.id}>
+                <InitiativeCard ctx={ctx} ini={i} />
+              </div>
+            ))}
           </div>
         ) : <Empty>You are not on a team yet. Browse the <a href="#/catalog">catalog</a>.</Empty>}
-      </div>
+      </section>
     </div>
   )
 }
@@ -2832,7 +2882,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
               {isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
             </div>
           </div>
-          <table className="table" style={{ marginTop: 10 }}>
+          <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table" style={{ marginTop: 10 }}>
             <thead>
               <tr><th>Title</th><th>Kind</th><th>Status</th><th>Period / submitted</th></tr>
             </thead>
@@ -2850,7 +2900,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                 </tr>
               )) : <tr><td colSpan={4} className="muted">No documents yet.</td></tr>}
             </tbody>
-          </table>
+          </table></div>
         </div>
       ) : null}
 
@@ -2860,7 +2910,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="card">
           <h3>Activity</h3>
           {activity.length ? (
-            <table className="table">
+            <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table">
               <tbody>
                 {activity.map((a) => (
                   <tr key={a.id}>
@@ -2870,7 +2920,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : <Empty>No recorded activity.</Empty>}
         </div>
       ) : null}
@@ -3057,7 +3107,7 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
 
       <div className="section">
         <h2>All accounts</h2>
-        <table className="table">
+        <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table">
           <thead>
             <tr><th>Name</th><th>Email</th><th>Status</th><th>Roles</th><th>Actions</th></tr>
           </thead>
@@ -3113,7 +3163,7 @@ function PageAccounts({ ctx }: { ctx: Ctx }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         {!ctx.isOperations ? (
           <p className="field-hint">Only Operations or Admin can grant or revoke roles.</p>
         ) : null}
@@ -3258,7 +3308,7 @@ function PageAssignments({ ctx }: { ctx: Ctx }) {
 
       <div className="section">
         <h2>All review obligations</h2>
-        <table className="table">
+        <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table">
           <thead>
             <tr><th>Reviewed</th><th>Reviewer</th><th>Status</th><th>Due</th></tr>
           </thead>
@@ -3275,7 +3325,7 @@ function PageAssignments({ ctx }: { ctx: Ctx }) {
               )
             }) : <tr><td colSpan={4} className="muted">None.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       <CycleControls ctx={ctx} />
@@ -3289,7 +3339,7 @@ function PageHealth({ ctx }: { ctx: Ctx }) {
   return (
     <div>
       <h1 className="section">Initiative health</h1>
-      <table className="table">
+      <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table">
         <thead>
           <tr>
             <th>Initiative</th><th>Lead</th><th>Status</th><th>HP</th>
@@ -3319,7 +3369,7 @@ function PageHealth({ ctx }: { ctx: Ctx }) {
             )
           })}
         </tbody>
-      </table>
+      </table></div>
 
       {canStatus || canHp ? (
         <div className="section" style={{ marginTop: 20 }}>
@@ -3359,7 +3409,7 @@ function PageAudit({ ctx }: { ctx: Ctx }) {
         type="search" placeholder="Filter" value={q} className="section"
         style={{ maxWidth: 320 }} onChange={(e) => setQ(e.target.value)}
       />
-      <table className="table">
+      <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table">
         <thead>
           <tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr>
         </thead>
@@ -3373,7 +3423,7 @@ function PageAudit({ ctx }: { ctx: Ctx }) {
             </tr>
           )) : <tr><td colSpan={4} className="muted">No entries.</td></tr>}
         </tbody>
-      </table>
+      </table></div>
     </div>
   )
 }

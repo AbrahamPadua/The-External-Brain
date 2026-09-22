@@ -116,6 +116,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
+import decodedBrainLogo from './assets/decoded-brain-logo.svg'
+import { readDarkTheme } from './theme'
+import NeuralBackground from './NeuralBackground'
 import { readProposal, sanitize } from './demo'
 import {
   addWeeksIso, formatLosAngelesLocal, isMondayIso, losAngelesMonday, parseLosAngelesLocal,
@@ -569,9 +572,7 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
           <Sidebar nav={nav} route={route} open={navOpen} onNavigate={onNavigate} />
         </div>
         <div className="ol-brand">
-          <svg className="ol-brand-waveform" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2 13h3l2-7 4 15 3-10 2 6 3-4h3" />
-          </svg>
+          <img className="ol-brand-logo" src={decodedBrainLogo} width="34" height="34" alt="" />
           <span className="ol-brand-title">Open Labs</span>
           <span className="ol-brand-divider">/</span>
           <span className="ol-brand-sub">Decoded Brain</span>
@@ -2335,39 +2336,169 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   )
 }
 
+function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  let hash = 0
+  for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
+  const hue = Math.abs(hash) % 360
+  const variant = Math.abs(hash) % 2
+
+  const bg = ini.coverUrl
+    ? {
+        backgroundImage: `url(${ini.coverUrl})`,
+        backgroundPosition: `${ini.coverPositionX ?? 50}% ${ini.coverPositionY ?? 50}%`,
+        backgroundSize: 'cover',
+      }
+    : { backgroundColor: ini.coverFallbackColor || `hsl(${hue}, 28%, 18%)` }
+
+  return (
+    <a className="catalog-card" href={`#/initiative/${ini.id}/overview`}>
+      <div className="catalog-media-frame">
+        <div className="catalog-media-art" style={bg}>
+          {!ini.coverUrl && (
+            variant === 0 ? (
+              <svg className="catalog-svg" viewBox="0 0 300 150" fill="none" aria-hidden="true">
+                <path d="M0 75 Q37.5 25 75 75 T150 75 T225 75 T300 75" stroke="currentColor" strokeWidth="2" opacity="0.45" />
+                <path d="M0 90 C45 130 85 35 150 85 S240 45 300 80" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+              </svg>
+            ) : (
+              <svg className="catalog-svg" viewBox="0 0 300 150" fill="none" aria-hidden="true">
+                <path d="M0 85 L70 85 85 95 100 25 115 115 130 80 145 85 210 85 225 40 240 100 255 85 300 85" stroke="currentColor" strokeWidth="2" opacity="0.45" />
+                <path d="M0 105 L120 105 135 65 150 120 165 105 300 105" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+              </svg>
+            )
+          )}
+          <div className="catalog-badges">
+            <span className="catalog-category-tag">{ini.category}</span>
+            <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+          </div>
+        </div>
+        <div className="catalog-overlay">
+          <p className="catalog-overlay-abstract">{ini.abstract}</p>
+          <div className="catalog-overlay-meta">
+            <span>Lead: {ctx.personName(ini.leadId)}</span>
+            <span>{ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}</span>
+          </div>
+        </div>
+      </div>
+      <div className="catalog-card-bottom">
+        <h3 className="catalog-card-title">{ini.title}</h3>
+      </div>
+    </a>
+  )
+}
+
 function PageCatalog({ ctx }: { ctx: Ctx }) {
   const [q, setQ] = useState('')
   const [activeOnly, setActiveOnly] = useState(true)
-  const list = ctx.data.initiatives.filter((i) => {
-    if ((activeOnly || !ctx.approved) && i.status !== 'active') return false
-    const hay = `${i.title} ${i.category} ${i.abstract}`.toLowerCase()
-    return hay.includes(q.trim().toLowerCase())
-  })
+  const [category, setCategory] = useState('All')
+  const [sort, setSort] = useState('asc')
+
+  const allowed = useMemo(() => {
+    return ctx.approved ? ctx.data.initiatives : ctx.data.initiatives.filter((i) => i.status === 'active')
+  }, [ctx.data.initiatives, ctx.approved])
+
+  const categoryList = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const i of allowed) {
+      if (i.category) counts.set(i.category, (counts.get(i.category) || 0) + 1)
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [allowed])
+
+  const list = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    return allowed
+      .filter((i) => {
+        if (ctx.approved && activeOnly && i.status !== 'active') return false
+        if (category !== 'All' && i.category !== category) return false
+        if (!query) return true
+        const lead = ctx.personName(i.leadId) || ''
+        return `${i.title} ${i.category} ${i.abstract} ${lead}`.toLowerCase().includes(query)
+      })
+      .sort((a, b) => {
+        const cmp = a.title.localeCompare(b.title)
+        return sort === 'desc' ? -cmp : cmp
+      })
+  }, [allowed, ctx, q, activeOnly, category, sort])
+
   return (
-    <div>
+    <div className="catalog-page">
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
           Every active Decoded Brain initiative at UC San Diego. Anyone can read this page.
         </p>
       </div>
-      <div className="row section">
-        <input
-          type="search" placeholder="Search initiatives" value={q}
-          onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320 }}
-        />
-        {ctx.approved ? (
-          <label className="row" style={{ gap: 6 }}>
-            <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} />
-            Active only
-          </label>
-        ) : null}
+      <div className="catalog-toolbar">
+        <div className="catalog-toolbar-main">
+          <input
+            type="search"
+            className="catalog-search"
+            placeholder="Search initiatives"
+            aria-label="Search initiatives"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="catalog-toolbar-actions">
+            {ctx.approved ? (
+              <label className="catalog-filter-label">
+                <input
+                  type="checkbox"
+                  checked={activeOnly}
+                  onChange={(e) => setActiveOnly(e.target.checked)}
+                />
+                Active only
+              </label>
+            ) : null}
+            <label className="catalog-filter-label">
+              <select
+                className="catalog-select"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+                aria-label="Sort initiatives"
+              >
+                <option value="asc">Name A-Z</option>
+                <option value="desc">Name Z-A</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="catalog-chips" role="group" aria-label="Discipline filter">
+          <button
+            type="button"
+            className={`catalog-chip ${category === 'All' ? 'is-active' : ''}`}
+            aria-pressed={category === 'All'}
+            onClick={() => setCategory('All')}
+          >
+            All disciplines ({allowed.length})
+          </button>
+          {categoryList.map(([cat, count]) => (
+            <button
+              type="button"
+              key={cat}
+              className={`catalog-chip ${category === cat ? 'is-active' : ''}`}
+              aria-pressed={category === cat}
+              onClick={() => setCategory(cat)}
+            >
+              {cat} ({count})
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="catalog-results-header">
+        <span className="catalog-count muted">
+          {list.length} {list.length === 1 ? 'initiative' : 'initiatives'} found
+        </span>
       </div>
       {list.length ? (
-        <div className="card-grid">
-          {list.map((i) => <InitiativeCard key={i.id} ctx={ctx} ini={i} />)}
+        <div className="catalog-grid">
+          {list.map((i) => (
+            <CatalogCard key={i.id} ctx={ctx} ini={i} />
+          ))}
         </div>
-      ) : <Empty>No initiatives match.</Empty>}
+      ) : (
+        <Empty>No initiatives match.</Empty>
+      )}
     </div>
   )
 }
@@ -3510,8 +3641,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     setNavOpen(false)
     requestAnimationFrame(() => (afterRoute ? mainRef.current : navToggleRef.current)?.focus())
   }
-  const [dark,setDark]=useState(()=>localStorage.getItem('openlabs-theme')==='dark'
-    ||(localStorage.getItem('openlabs-theme')===null&&window.matchMedia?.('(prefers-color-scheme: dark)').matches))
+  const [dark,setDark]=useState(readDarkTheme)
 
   useEffect(()=>{localStorage.setItem('openlabs-theme',dark?'dark':'light')},[dark])
 
@@ -3652,6 +3782,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     route.name === 'settings' || route.name === 'profile'
   return (
     <div className={`ol ${dark?'theme-dark':''}`}>
+      <NeuralBackground />
       <div className="ol-main" ref={mainRef} tabIndex={-1}>
         <TopBar ctx={ctx} nav={nav} route={route} navOpen={navOpen} navToggleRef={navToggleRef}
           navMenuRef={navMenuRef} onNavigate={() => closeNavigation(true)} onToggleNav={() => setNavOpen((open) => !open)} />

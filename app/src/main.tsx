@@ -9,6 +9,7 @@ import {seed,normalizeProfileDetails,profileDetailsError} from './model'
 import type {Data,ProfileDetails} from './model'
 import './style.css'
 import './studio.css'
+import './visual-update.css'
 const DEMO_KEY='open-labs-demo-v1'
 const blank:Data={people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[]}
 function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KEY)||'null');if(saved?.people&&saved?.initiatives&&saved?.audit)return saved}catch{/* recover corrupted local demo */}return structuredClone(seed)}

@@ -10,10 +10,15 @@ import { seed } from '/src/model.ts';
 import { demoAction } from '/src/demo.ts';
 import '/src/style.css';
 import '/src/studio.css';
+import '/src/visual-update.css';
 const query = new URLSearchParams(location.search);
 localStorage.setItem('openlabs-theme', query.get('theme') || 'dark');
 function Review() {
-  const [data, setData] = React.useState(() => structuredClone(seed));
+  const [data, setData] = React.useState(() => {
+    const copy = structuredClone(seed);
+    if (query.has('catalogEdge')) copy.initiatives.push({ ...copy.initiatives[0], id: 'inactive-fixture', title: 'Withheld fixture', category: 'Withheld discipline', status: 'paused' });
+    return copy;
+  });
   const [userId, setUserId] = React.useState(query.get('user') || null);
   return React.createElement(App, { data, userId, mode: 'demo', authEmail: null,
     onAction: async (name, payload) => {

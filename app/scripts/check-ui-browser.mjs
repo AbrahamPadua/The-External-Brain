@@ -38,28 +38,37 @@ try {
   for (const [name, width, theme, user, route] of [
     ['dashboard-dark',1440,'dark','maya',''], ['dashboard-reference',1600,'dark','maya',''], ['dashboard-mobile',390,'dark','maya',''],
     ['dashboard-tablet',768,'dark','alex',''], ['dashboard-light',1440,'light','sam',''],
-    ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
+    ['catalog-desktop',1440,'dark','maya','catalog'], ['catalog-light',1440,'light','maya','catalog'], ['catalog-visitor',1440,'light','','catalog'], ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
     ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
     ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
     ['document-mobile',390,'dark','maya','document/rm-sound'],
     ['accounts-mobile',390,'dark','sam','accounts'],
-    ['loader-mobile',390,'dark','',''], ['loader-reduced',1440,'dark','',''],
+    ['loader-light',1440,'light','',''], ['loader-mobile',390,'dark','',''], ['loader-reduced',1440,'dark','',''],
   ]) {
-    await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: false })
+    await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 })
+    await call('Emulation.setTouchEmulationEnabled', { enabled: width === 390 })
     const loader = name.startsWith('loader')
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: name === 'loader-reduced' ? 'reduce' : 'no-preference' }] })
     const pageLoaded = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Page load timed out')), 15000)
       onPageLoaded = () => { clearTimeout(timeout); resolve() }
     })
-    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}#/${route}` })
+    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}${route === 'catalog' ? '&catalogEdge=1' : ''}#/${route}` })
     if (!navigation.loaderId) onPageLoaded()
     await pageLoaded
     await evaluate(`new Promise((resolve,reject)=>{let tries=0;const check=()=>{if(document.querySelector('${loader ? '.workspace-loader' : '.ol-page'}'))resolve(true);else if(++tries>100)reject('App not ready');else setTimeout(check,100)};check()})`)
     const state = await evaluate(`({ title: document.querySelector('h1')?.textContent, overflow: document.documentElement.scrollWidth > innerWidth, navVisible: document.querySelector('#primary-navigation') ? getComputedStyle(document.querySelector('#primary-navigation')).display !== 'none' : null, theme: document.querySelector('.ol')?.className })`)
     if (loader) {
       state.imageLoaded = await evaluate(`new Promise(resolve=>{const img=document.querySelector('.workspace-loader img');if(img.complete)resolve(img.naturalWidth>0);else {img.onload=()=>resolve(true);img.onerror=()=>resolve(false)}})`)
+      state.canvasChanges = await evaluate(`new Promise(resolve=>{const c=document.querySelector('canvas');const before=c.toDataURL();setTimeout(()=>resolve(before!==c.toDataURL()),180)})`)
+      state.canvasSized = await evaluate(`document.querySelector('canvas').width >= innerWidth`)
       state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
+    }
+    if (route === 'catalog') {
+      state.cardCount = await evaluate(`document.querySelectorAll('.catalog-card').length`)
+      await evaluate(`document.querySelector('.catalog-card')?.focus()` )
+      await evaluate(`new Promise(resolve=>setTimeout(resolve,250))`)
+      state.detailsAccessible = await evaluate(`getComputedStyle(document.querySelector('.catalog-overlay')).opacity === '1'`)
     }
     if (width === 390 && !loader) {
       await evaluate(`document.querySelector('.ol-nav-toggle').click()`)
@@ -68,19 +77,38 @@ try {
       await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
       state.menuCloses = await evaluate(`getComputedStyle(document.querySelector('#primary-navigation')).display === 'none'`)
     }
+    if (route === 'catalog' && width === 390) {
+      state.detailsFit = await evaluate(`Array.from(document.querySelectorAll('.catalog-card')).every(card=>card.querySelector('.catalog-overlay').getBoundingClientRect().bottom <= card.querySelector('.catalog-card-bottom').getBoundingClientRect().top + 1)`)
+    }
     const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
     writeFileSync(join(output, `${name}.png`), Buffer.from(screenshot.data, 'base64'))
+    if (route === 'catalog') {
+      state.activeDefault = state.cardCount === 2
+      const settle = () => evaluate(`new Promise(resolve=>setTimeout(resolve,70))`)
+      await evaluate(`document.querySelectorAll('.catalog-chip')[1].click()`)
+      await settle()
+      state.categoryFilters = await evaluate(`document.querySelectorAll('.catalog-card').length === 1`)
+      await evaluate(`document.querySelector('.catalog-chip').click();var input=document.querySelector('.catalog-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Alex Rivera');input.dispatchEvent(new Event('input',{bubbles:true}))`)
+      await settle()
+      state.leadSearch = await evaluate(`document.querySelectorAll('.catalog-card').length === 1 && document.querySelector('.catalog-card-title').textContent === 'Memory in Motion'`)
+      await evaluate(`var input=document.querySelector('.catalog-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'no-such-initiative');input.dispatchEvent(new Event('input',{bubbles:true}))`)
+      await settle()
+      state.emptySearch = await evaluate(`document.querySelectorAll('.catalog-card').length === 0`)
+      await evaluate(`var input=document.querySelector('.catalog-search');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));var select=document.querySelector('.catalog-select');select.value='desc';select.dispatchEvent(new Event('change',{bubbles:true}))`)
+      await settle()
+      state.sortWorks = await evaluate(`document.querySelector('.catalog-card-title').textContent === 'Spatial Sound Lab'`)
+      if (user) {
+        await evaluate(`document.querySelector('.catalog-toolbar input[type=checkbox]').click()`)
+        await settle()
+        state.activeToggle = await evaluate(`document.querySelectorAll('.catalog-card').length === 3`)
+      } else {
+        state.inactiveHidden = await evaluate(`!document.querySelector('.catalog-page').textContent.includes('Withheld')`)
+      }
+      if (!user) state.visitorActiveOnly = await evaluate(`!document.querySelector('.catalog-toolbar input[type=checkbox]')`)
+    }
     results.push({ name, width, ...state })
   }
-  const asset = await evaluate(`document.querySelector('.workspace-loader img').src`)
-  const assetLoaded = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('SVG load timed out')), 10000)
-    onPageLoaded = () => { clearTimeout(timeout); resolve() }
-  })
-  await call('Page.navigate', { url: asset })
-  await assetLoaded
-  const reducedMotionStopsSvg = await evaluate(`Array.from(document.querySelectorAll('.fire-apical,.fire-lateral,.fire-basal,.soma-element,.bouton-spark')).every(node => getComputedStyle(node).animationName === 'none')`)
-  writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors, reducedMotionStopsSvg }, null, 2))
-  console.log(JSON.stringify({ output, results, errors, reducedMotionStopsSvg }, null, 2))
-  if (!reducedMotionStopsSvg || errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false)) process.exitCode = 1
+  writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
+  console.log(JSON.stringify({ output, results, errors }, null, 2))
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

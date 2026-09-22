@@ -34,9 +34,15 @@ function Root(){
  const [error,setError]=useState('')
  const currentUser=useRef<string|null>(null)
  const refresh=useCallback(async(uid:string|null)=>{try{const result=await loadLive(uid);if(currentUser.current===uid){setData(result);setError('')}}catch(e){if(currentUser.current===uid){setData(blank);setError(e instanceof Error?e.message:'Unable to load workspace')}}finally{if(currentUser.current===uid)setLoading(false)}},[])
- useEffect(()=>{if(!supabase)return;let alive=true
- const {data:subscription}=supabase.auth.onAuthStateChange((_event,session)=>{if(!alive)return;const uid=session?.user.id??null;currentUser.current=uid;setUserId(uid);setAuthEmail(session?.user.email??null);setData(blank);setLoading(true);setTimeout(()=>void refresh(uid),0)})
- void supabase.auth.getSession().then(({data,error})=>{if(!alive)return;if(error){setError(error.message);setLoading(false);return}const uid=data.session?.user.id??null;currentUser.current=uid;setUserId(uid);setAuthEmail(data.session?.user.email??null);void refresh(uid)})
+ useEffect(()=>{if(!supabase)return;let alive=true;let sessionInitialized=false
+ const applySession=(uid:string|null,email:string|null,fromAuthEvent:boolean)=>{
+ if(sessionInitialized&&currentUser.current===uid){setAuthEmail(email);return}
+ sessionInitialized=true;currentUser.current=uid;setUserId(uid);setAuthEmail(email);setData(blank);setLoading(true)
+ // Supabase auth callbacks must finish before a database request starts.
+ if(fromAuthEvent)setTimeout(()=>{if(alive)void refresh(uid)},0);else void refresh(uid)
+ }
+ const {data:subscription}=supabase.auth.onAuthStateChange((_event,session)=>{if(!alive)return;applySession(session?.user.id??null,session?.user.email??null,true)})
+ void supabase.auth.getSession().then(({data,error})=>{if(!alive||sessionInitialized)return;if(error){setError(error.message);setLoading(false);return}applySession(data.session?.user.id??null,data.session?.user.email??null,false)})
  const timer=setInterval(()=>void refresh(currentUser.current),30000)
  return()=>{alive=false;subscription.subscription.unsubscribe();clearInterval(timer)}
  },[refresh])

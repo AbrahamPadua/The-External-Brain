@@ -52,6 +52,23 @@ it('shows the real pending loader, exits on success, and preserves failure and r
     expect(host.querySelector('.workspace-loader')).not.toBeNull()
     await act(async () => { finish(blank) })
     expect(host.textContent).toBe('Workspace ready')
+    const loadedCalls = mock.load.mock.calls.length
+    await act(async () => {
+      mock.authChanged?.('TOKEN_REFRESHED', { user: { id: 'member', email: 'fictional@example.test' } })
+      mock.authChanged?.('SIGNED_IN', { user: { id: 'member', email: 'fictional@example.test' } })
+    })
+    expect(host.textContent).toBe('Workspace ready')
+    expect(host.querySelector('.workspace-loader')).toBeNull()
+    expect(mock.load).toHaveBeenCalledTimes(loadedCalls)
+
+    mock.load.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await act(async () => {
+      mock.authChanged?.('SIGNED_OUT', null)
+      await new Promise(resolve => setTimeout(resolve, 10))
+    })
+    expect(host.querySelector('.workspace-loader')).not.toBeNull()
+    await act(async () => { finish(blank) })
+    expect(host.textContent).toBe('Workspace ready')
   } finally {
     await act(async () => mock.root?.unmount())
     host.remove()

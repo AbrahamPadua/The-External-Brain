@@ -145,6 +145,7 @@ type AppProps = {
   onAction: (action: string, payload: any) => Promise<void>
   mode: 'demo' | 'live'
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
+  onVerifyCode?: (email: string, code: string) => Promise<void>
   onSignOut: () => Promise<void>
   /** The signed-in account's own email, read from the session. Read-only here. */
   authEmail?: string | null
@@ -167,6 +168,7 @@ type Ctx = {
   personName: (id: string) => string
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
+  onVerifyCode?: (email: string, code: string) => Promise<void>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
   uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
@@ -604,7 +606,7 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
 // --- forms ------------------------------------------------------------
 
 /**
- * Sign in, or create an account. Both use the same emailed magic link; a new
+ * Sign in, or create an account. Both request an email; a new
  * account additionally gives a name (required) and, if they want, a major and a
  * line about their research interests. Returning members send email only, so an
  * account that already exists keeps the profile it has.
@@ -615,6 +617,7 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
   const [name, setName] = useState('')
   const [major, setMajor] = useState('')
   const [interests, setInterests] = useState('')
+  const [code, setCode] = useState('')
   if (ctx.mode === 'demo') {
     return (
       <div className="card">
@@ -687,7 +690,7 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
           />
         </Field>
         <button className="btn" disabled={ctx.busy || (newAccount && !!problem)}>
-          <LogIn size={16} /> Send sign-in link
+          <LogIn size={16} /> Send sign-in email
         </button>
         {newAccount && problem && name.length ? (
           <span className="field-hint" role="alert">{problem}</span>
@@ -695,9 +698,25 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
         <span className="field-hint">
           {newAccount
             ? 'New accounts stay pending until Operations or Research approve them. Your details are saved with your account and you can edit them from Settings at any time.'
-            : 'We email you a sign-in link. Your name, major and interests stay exactly as they are.'}
+            : 'We email you sign-in instructions. Your name, major and interests stay exactly as they are.'}
         </span>
       </form>
+      {!newAccount && ctx.onVerifyCode ? (
+        <form className="stack signin-code-form" onSubmit={async (event: FormEvent) => {
+          event.preventDefault()
+          if (!email.trim() || !/^\d{6}$/.test(code)) return
+          await ctx.onVerifyCode?.(email.trim(), code)
+        }}>
+          <h4>Have a six-digit email code?</h4>
+          <Field label="Email code" hint="Use the code from your latest Open Labs email, if one is included.">
+            <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
+              maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} disabled={ctx.busy} />
+          </Field>
+          <button className="btn ghost" disabled={ctx.busy || !email.trim() || !/^\d{6}$/.test(code)}>
+            Sign in with code
+          </button>
+        </form>
+      ) : null}
     </div>
   )
 }
@@ -2134,10 +2153,10 @@ function AuthLinkError({ expired, signedIn }: { expired: boolean; signedIn: bool
       <p className="muted">
         {signedIn
           ? 'Your account is already signed in. Open the workspace to continue.'
-          : 'Email links work only once. Request a new link, then open it once in the browser where you want to use Open Labs.'}
+          : 'Email links work only once. Request a new sign-in email. If it includes a six-digit code, you can enter the code instead.'}
       </p>
       <div className="btn-row">
-        <a className="btn" href={signedIn ? '#/' : '#/signin'}>{signedIn ? 'Open workspace' : 'Request a new link'}</a>
+        <a className="btn" href={signedIn ? '#/' : '#/signin'}>{signedIn ? 'Open workspace' : 'Request a new sign-in email'}</a>
         <a className="btn ghost" href="#/">Go home</a>
       </div>
     </div>
@@ -2159,7 +2178,7 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Sign in to Open Labs</h1>
         <p className="muted">
-          Decoded Brain at UC San Diego. Members sign in with an emailed link - there is
+          Decoded Brain at UC San Diego. Members sign in through email - there is
           no password to remember.
         </p>
       </div>
@@ -3649,7 +3668,7 @@ const GUARDED = new Set([
   'proposals', 'new-proposal', 'requests', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
-export default function App({ data, userId, onAction, mode, onSignIn, onSignOut, authEmail }: AppProps) {
+export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onSignOut, authEmail }: AppProps) {
   const [route, setRoute] = useState<Route>(() => parseHash())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3741,7 +3760,10 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
     },
     run,
     onSignIn: (email, details) =>
-      guard(() => onSignIn(email, details), 'Check your email for a sign-in link.').then(() => undefined),
+      guard(() => onSignIn(email, details), 'Check your email for sign-in instructions.').then(() => undefined),
+    onVerifyCode: onVerifyCode
+      ? (email, code) => guard(() => onVerifyCode(email, code)).then(() => undefined)
+      : undefined,
     onSignOut: () => guard(() => onSignOut()).then(() => undefined),
     // Both uploads are mutations - they write bytes and register a row - so they
     // come from the same gateway as `run`, not from a second path.

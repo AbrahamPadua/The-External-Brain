@@ -20,11 +20,11 @@ function Review() {
     return copy;
   });
   const [userId, setUserId] = React.useState(query.get('user') || null);
-  return React.createElement(App, { data, userId, mode: 'demo', authEmail: null,
+  return React.createElement(App, { data, userId, mode: query.has('live') ? 'live' : 'demo', authEmail: null,
     onAction: async (name, payload) => {
       if (name === 'switchDemoUser') setUserId(payload.userId || null);
       else setData(await demoAction(data, userId, name, payload));
-    }, onSignIn: async () => {}, onSignOut: async () => setUserId(null) });
+    }, onSignIn: async () => {}, onVerifyCode: async () => {}, onSignOut: async () => setUserId(null) });
 }
 createRoot(document.getElementById('app')).render(React.createElement(query.has('loader') ? WorkspaceLoader : Review));
 </script></body></html>

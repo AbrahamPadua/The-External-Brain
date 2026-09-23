@@ -4,18 +4,24 @@ import { expect, it, vi } from 'vitest'
 
 const mock = vi.hoisted(() => ({
   load: vi.fn(),
+  verifyOtp: vi.fn(),
+  verifyCode: null as null | ((email: string, code: string) => Promise<void>),
   authChanged: null as null | ((event: string, session: { user: { id: string; email: string } } | null) => void),
   root: null as import('react-dom/client').Root | null,
 }))
 vi.mock('./client', () => ({ configured: true, supabase: { auth: {
   getSession: async () => ({ data: { session: null }, error: null }),
+  verifyOtp: mock.verifyOtp,
   onAuthStateChange: (callback: typeof mock.authChanged) => {
     mock.authChanged = callback
     return { data: { subscription: { unsubscribe: vi.fn() } } }
   },
 } } }))
 vi.mock('./live', () => ({ loadLive: mock.load, liveAction: vi.fn(), rememberSignup: vi.fn() }))
-vi.mock('./App', () => ({ default: () => <h1>Workspace ready</h1> }))
+vi.mock('./App', () => ({ default: ({ onVerifyCode }: { onVerifyCode: (email: string, code: string) => Promise<void> }) => {
+  mock.verifyCode = onVerifyCode
+  return <h1>Workspace ready</h1>
+} }))
 vi.mock('react-dom/client', async (original) => {
   const actual = await original<typeof import('react-dom/client')>()
   return { ...actual, createRoot: (...args: Parameters<typeof actual.createRoot>) => {
@@ -39,6 +45,11 @@ it('shows the real pending loader, exits on success, and preserves failure and r
     await act(async () => { finish(blank) })
     expect(host.textContent).toBe('Workspace ready')
     expect(host.querySelector('.workspace-loader')).toBeNull()
+    mock.verifyOtp.mockResolvedValueOnce({ error: null })
+    await act(async () => { await mock.verifyCode?.('member@example.test', '123456') })
+    expect(mock.verifyOtp).toHaveBeenCalledWith({ email: 'member@example.test', token: '123456', type: 'email' })
+    await expect(mock.verifyCode?.('member@example.test', 'invalid')).rejects.toThrow('six-digit code')
+    expect(mock.verifyOtp).toHaveBeenCalledTimes(1)
 
     mock.load.mockRejectedValueOnce(new Error('Temporary connection failure'))
     await act(async () => {

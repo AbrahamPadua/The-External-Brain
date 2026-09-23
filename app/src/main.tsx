@@ -68,9 +68,15 @@ function Root(){
  if(error)throw new Error(signInMessage(error,!!signup))
  if(signup)rememberSignup(email,signup)
  }
+ async function verifyEmailCode(email:string,code:string){
+ if(!supabase)throw new Error('Email codes are available only on the live site')
+ if(!/^\d{6}$/.test(code))throw new Error('Enter the six-digit code from your email')
+ const {error}=await supabase.auth.verifyOtp({email:email.trim(),token:code,type:'email'})
+ if(error)throw new Error(error.message)
+ }
  async function signOut(){if(supabase){const {error}=await supabase.auth.signOut();if(error)throw error}setUserId(null);setAuthEmail(null)}
  if(loading)return <WorkspaceLoader />
  if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setLoading(true);void refresh(userId)}}>Try again</button></div>
- return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onSignOut={signOut} authEmail={authEmail}/>
+ return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onVerifyCode={verifyEmailCode} onSignOut={signOut} authEmail={authEmail}/>
 }
 createRoot(document.getElementById('app')!).render(<React.StrictMode><Root/></React.StrictMode>)

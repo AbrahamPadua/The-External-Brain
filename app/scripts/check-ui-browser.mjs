@@ -40,6 +40,7 @@ try {
     ['dashboard-tablet',768,'dark','alex',''], ['dashboard-light',1440,'light','sam',''],
     ['catalog-desktop',1440,'dark','maya','catalog'], ['catalog-light',1440,'light','maya','catalog'], ['catalog-visitor',1440,'light','','catalog'], ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
     ['expired-link',390,'dark','','error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'],
+    ['signin-code',390,'dark','','signin'],
     ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
     ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
     ['document-mobile',390,'dark','maya','document/rm-sound'],
@@ -54,7 +55,7 @@ try {
       const timeout = setTimeout(() => reject(new Error('Page load timed out')), 15000)
       onPageLoaded = () => { clearTimeout(timeout); resolve() }
     })
-    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}${route === 'catalog' ? '&catalogEdge=1' : ''}#/${route}` })
+    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}${route === 'catalog' ? '&catalogEdge=1' : ''}${name === 'signin-code' ? '&live=1' : ''}#/${route}` })
     if (!navigation.loaderId) onPageLoaded()
     await pageLoaded
     await evaluate(`new Promise((resolve,reject)=>{let tries=0;const check=()=>{if(document.querySelector('${loader ? '.workspace-loader' : '.ol-page'}'))resolve(true);else if(++tries>100)reject('App not ready');else setTimeout(check,100)};check()})`)
@@ -66,6 +67,7 @@ try {
       state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
     }
     if (name === 'expired-link') state.authRecovery = await evaluate(`document.querySelector('h1')?.textContent.includes('sign-in link') && !!document.querySelector('a[href="#/signin"]') && !document.body.textContent.includes('Nothing here')`)
+    if (name === 'signin-code') state.codeInput = await evaluate(`!!document.querySelector('input[autocomplete="one-time-code"]') && !!Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in with code'))`)
     if (route === 'catalog') {
       state.cardCount = await evaluate(`document.querySelectorAll('.catalog-card').length`)
       await evaluate(`document.querySelector('.catalog-card')?.focus()` )
@@ -112,5 +114,5 @@ try {
   }
   writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
   console.log(JSON.stringify({ output, results, errors }, null, 2))
-  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.codeInput === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

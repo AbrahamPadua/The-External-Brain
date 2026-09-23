@@ -167,7 +167,7 @@ type Ctx = {
   authEmail: string | null
   personName: (id: string) => string
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
-  onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
+  onSignIn: (email: string, details?: ProfileDetails) => Promise<boolean>
   onVerifyCode?: (email: string, code: string) => Promise<void>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
@@ -618,6 +618,8 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
   const [major, setMajor] = useState('')
   const [interests, setInterests] = useState('')
   const [code, setCode] = useState('')
+  const [emailSent, setEmailSent] = useState(false)
+  const codeInputRef = useRef<HTMLInputElement>(null)
   if (ctx.mode === 'demo') {
     return (
       <div className="card">
@@ -655,7 +657,11 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
           e.preventDefault()
           if (!email.trim()) return
           if (newAccount && problem) return
-          await ctx.onSignIn(email.trim(), newAccount ? details : undefined)
+          const sent = await ctx.onSignIn(email.trim(), newAccount ? details : undefined)
+          if (sent && !newAccount) {
+            setEmailSent(true)
+            requestAnimationFrame(() => codeInputRef.current?.focus())
+          }
         }}
       >
         {newAccount ? (
@@ -686,7 +692,7 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
         <Field label="University email">
           <input
             type="email" required placeholder="you@ucsd.edu" value={email}
-            onChange={(e) => setEmail(e.target.value)} disabled={ctx.busy}
+            onChange={(e) => { setEmail(e.target.value); setEmailSent(false) }} disabled={ctx.busy}
           />
         </Field>
         <button className="btn" disabled={ctx.busy || (newAccount && !!problem)}>
@@ -707,9 +713,9 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
           if (!email.trim() || !/^\d{6}$/.test(code)) return
           await ctx.onVerifyCode?.(email.trim(), code)
         }}>
-          <h4>Have a six-digit email code?</h4>
+          <h4>{emailSent ? 'Email sent — enter your code here' : 'Have a six-digit email code?'}</h4>
           <Field label="Email code" hint="Use the code from your latest Open Labs email, if one is included.">
-            <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
+            <input ref={codeInputRef} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
               maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} disabled={ctx.busy} />
           </Field>
           <button className="btn ghost" disabled={ctx.busy || !email.trim() || !/^\d{6}$/.test(code)}>
@@ -3760,7 +3766,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     },
     run,
     onSignIn: (email, details) =>
-      guard(() => onSignIn(email, details), 'Check your email for sign-in instructions.').then(() => undefined),
+      guard(() => onSignIn(email, details), 'Check your email for sign-in instructions.'),
     onVerifyCode: onVerifyCode
       ? (email, code) => guard(() => onVerifyCode(email, code)).then(() => undefined)
       : undefined,

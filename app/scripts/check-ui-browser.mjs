@@ -67,7 +67,13 @@ try {
       state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
     }
     if (name === 'expired-link') state.authRecovery = await evaluate(`document.querySelector('h1')?.textContent.includes('sign-in link') && !!document.querySelector('a[href="#/signin"]') && !document.body.textContent.includes('Nothing here')`)
-    if (name === 'signin-code') state.codeInput = await evaluate(`!!document.querySelector('input[autocomplete="one-time-code"]') && !!Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in with code'))`)
+    if (name === 'signin-code') {
+      state.codeInput = await evaluate(`!!document.querySelector('input[autocomplete="one-time-code"]') && !!Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in with code'))`)
+      await evaluate(`var email=document.querySelector('input[type=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(email,'member@example.test');email.dispatchEvent(new Event('input',{bubbles:true}))`)
+      await evaluate(`new Promise(resolve=>setTimeout(resolve,70))`)
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Send sign-in email')).click()`)
+      state.codeAfterSend = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(document.activeElement === document.querySelector('input[autocomplete="one-time-code"]') && document.body.textContent.includes('Email sent — enter your code here')),150))`)
+    }
     if (route === 'catalog') {
       state.cardCount = await evaluate(`document.querySelectorAll('.catalog-card').length`)
       await evaluate(`document.querySelector('.catalog-card')?.focus()` )
@@ -114,5 +120,5 @@ try {
   }
   writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
   console.log(JSON.stringify({ output, results, errors }, null, 2))
-  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.codeInput === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.codeInput === false || result.codeAfterSend === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

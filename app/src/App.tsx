@@ -181,6 +181,10 @@ const CATEGORIES = [
 
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '')
+  if (raw.startsWith('error=')) {
+    const params = new URLSearchParams(raw)
+    return { name: 'auth-error', parts: [params.get('error_code') ?? ''] }
+  }
   const parts = raw.split('/').filter(Boolean).map((s) => {
     try { return decodeURIComponent(s) } catch { return s }
   })
@@ -2123,6 +2127,23 @@ function NotFound() {
   )
 }
 
+function AuthLinkError({ expired, signedIn }: { expired: boolean; signedIn: boolean }) {
+  return (
+    <div className="card">
+      <h1>{expired ? 'This sign-in link has already been used or expired' : 'This sign-in link could not be used'}</h1>
+      <p className="muted">
+        {signedIn
+          ? 'Your account is already signed in. Open the workspace to continue.'
+          : 'Email links work only once. Request a new link, then open it once in the browser where you want to use Open Labs.'}
+      </p>
+      <div className="btn-row">
+        <a className="btn" href={signedIn ? '#/' : '#/signin'}>{signedIn ? 'Open workspace' : 'Request a new link'}</a>
+        <a className="btn ghost" href="#/">Go home</a>
+      </div>
+    </div>
+  )
+}
+
 function PageSignIn({ ctx }: { ctx: Ctx }) {
   if (ctx.me) {
     return (
@@ -3758,6 +3779,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onSignOut,
       case '': return <PageHome ctx={ctx} />
       case 'catalog': return <PageCatalog ctx={ctx} />
       case 'signin': return <PageSignIn ctx={ctx} />
+      case 'auth-error': return <AuthLinkError expired={route.parts[0] === 'otp_expired'} signedIn={!!me} />
       case 'settings':
       case 'profile': return <PageSettings
         ctx={ctx} dark={dark} onToggleDark={() => setDark((v) => !v)}

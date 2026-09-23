@@ -39,6 +39,7 @@ try {
     ['dashboard-dark',1440,'dark','maya',''], ['dashboard-reference',1600,'dark','maya',''], ['dashboard-mobile',390,'dark','maya',''],
     ['dashboard-tablet',768,'dark','alex',''], ['dashboard-light',1440,'light','sam',''],
     ['catalog-desktop',1440,'dark','maya','catalog'], ['catalog-light',1440,'light','maya','catalog'], ['catalog-visitor',1440,'light','','catalog'], ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
+    ['expired-link',390,'dark','','error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'],
     ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
     ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
     ['document-mobile',390,'dark','maya','document/rm-sound'],
@@ -64,6 +65,7 @@ try {
       state.canvasSized = await evaluate(`document.querySelector('canvas').width >= innerWidth`)
       state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
     }
+    if (name === 'expired-link') state.authRecovery = await evaluate(`document.querySelector('h1')?.textContent.includes('sign-in link') && !!document.querySelector('a[href="#/signin"]') && !document.body.textContent.includes('Nothing here')`)
     if (route === 'catalog') {
       state.cardCount = await evaluate(`document.querySelectorAll('.catalog-card').length`)
       await evaluate(`document.querySelector('.catalog-card')?.focus()` )
@@ -110,5 +112,5 @@ try {
   }
   writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
   console.log(JSON.stringify({ output, results, errors }, null, 2))
-  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

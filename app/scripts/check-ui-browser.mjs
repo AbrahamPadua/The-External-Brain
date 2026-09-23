@@ -41,6 +41,7 @@ try {
     ['catalog-desktop',1440,'dark','maya','catalog'], ['catalog-light',1440,'light','maya','catalog'], ['catalog-visitor',1440,'light','','catalog'], ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
     ['expired-link',390,'dark','','error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'],
     ['signin-code',390,'dark','','signin'],
+    ['signin-confirm',390,'dark','','confirm-email/' + 'a'.repeat(56)],
     ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
     ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
     ['document-mobile',390,'dark','maya','document/rm-sound'],
@@ -67,6 +68,11 @@ try {
       state.reducedMotion = await evaluate(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
     }
     if (name === 'expired-link') state.authRecovery = await evaluate(`document.querySelector('h1')?.textContent.includes('sign-in link') && !!document.querySelector('a[href="#/signin"]') && !document.body.textContent.includes('Nothing here')`)
+    if (name === 'signin-confirm') {
+      state.confirmWaitsForClick = await evaluate(`document.querySelector('h1')?.textContent === 'Finish signing in' && !window.__verifyLinkCalls`)
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in to Open Labs')).click()`)
+      state.confirmSignsIn = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(window.__verifyLinkCalls === 1 && location.hash === '#/'),100))`)
+    }
     if (name === 'signin-code') {
       state.codeInput = await evaluate(`!!document.querySelector('input[autocomplete="one-time-code"]') && !!Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in with code'))`)
       await evaluate(`var email=document.querySelector('input[type=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(email,'member@example.test');email.dispatchEvent(new Event('input',{bubbles:true}))`)
@@ -120,5 +126,5 @@ try {
   }
   writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
   console.log(JSON.stringify({ output, results, errors }, null, 2))
-  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.codeInput === false || result.codeAfterSend === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.confirmWaitsForClick === false || result.confirmSignsIn === false || result.codeInput === false || result.codeAfterSend === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

@@ -74,9 +74,15 @@ function Root(){
  const {error}=await supabase.auth.verifyOtp({email:email.trim(),token:code,type:'email'})
  if(error)throw new Error(error.message)
  }
+ async function verifyEmailLink(tokenHash:string){
+ if(!supabase)throw new Error('Email sign-in is available only on the live site')
+ if(!/^(?:pkce_)?[a-f0-9]{56}$/i.test(tokenHash))throw new Error('This sign-in email is invalid. Request a new one.')
+ const {error}=await supabase.auth.verifyOtp({token_hash:tokenHash,type:'email'})
+ if(error)throw new Error(error.message)
+ }
  async function signOut(){if(supabase){const {error}=await supabase.auth.signOut();if(error)throw error}setUserId(null);setAuthEmail(null)}
  if(loading)return <WorkspaceLoader />
  if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setLoading(true);void refresh(userId)}}>Try again</button></div>
- return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onVerifyCode={verifyEmailCode} onSignOut={signOut} authEmail={authEmail}/>
+ return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onVerifyCode={verifyEmailCode} onVerifyLink={verifyEmailLink} onSignOut={signOut} authEmail={authEmail}/>
 }
 createRoot(document.getElementById('app')!).render(<React.StrictMode><Root/></React.StrictMode>)

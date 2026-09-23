@@ -146,6 +146,7 @@ type AppProps = {
   mode: 'demo' | 'live'
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
   onVerifyCode?: (email: string, code: string) => Promise<void>
+  onVerifyLink?: (tokenHash: string) => Promise<void>
   onSignOut: () => Promise<void>
   /** The signed-in account's own email, read from the session. Read-only here. */
   authEmail?: string | null
@@ -169,6 +170,7 @@ type Ctx = {
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
   onSignIn: (email: string, details?: ProfileDetails) => Promise<boolean>
   onVerifyCode?: (email: string, code: string) => Promise<void>
+  onVerifyLink?: (tokenHash: string) => Promise<boolean>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
   uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
@@ -2169,6 +2171,27 @@ function AuthLinkError({ expired, signedIn }: { expired: boolean; signedIn: bool
   )
 }
 
+function EmailLinkConfirm({ ctx }: { ctx: Ctx }) {
+  const tokenHash = ctx.route.parts[1] ?? ''
+  if (!/^(?:pkce_)?[a-f0-9]{56}$/i.test(tokenHash) || !ctx.onVerifyLink) {
+    return <AuthLinkError expired={false} signedIn={!!ctx.me} />
+  }
+  if (ctx.me) {
+    return <div className="card"><h1>You are signed in</h1><a className="btn" href="#/">Open workspace</a></div>
+  }
+  return (
+    <div className="card">
+      <h1>Finish signing in</h1>
+      <p className="muted">Press the button to use the sign-in email you just opened.</p>
+      <button className="btn" disabled={ctx.busy} onClick={async () => {
+        if (!await ctx.onVerifyLink?.(tokenHash)) return
+        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/')
+        window.dispatchEvent(new Event('hashchange'))
+      }}>Sign in to Open Labs</button>
+    </div>
+  )
+}
+
 function PageSignIn({ ctx }: { ctx: Ctx }) {
   if (ctx.me) {
     return (
@@ -3674,7 +3697,7 @@ const GUARDED = new Set([
   'proposals', 'new-proposal', 'requests', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
-export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onSignOut, authEmail }: AppProps) {
+export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onVerifyLink, onSignOut, authEmail }: AppProps) {
   const [route, setRoute] = useState<Route>(() => parseHash())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3770,6 +3793,9 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     onVerifyCode: onVerifyCode
       ? (email, code) => guard(() => onVerifyCode(email, code)).then(() => undefined)
       : undefined,
+    onVerifyLink: onVerifyLink
+      ? (tokenHash) => guard(() => onVerifyLink(tokenHash))
+      : undefined,
     onSignOut: () => guard(() => onSignOut()).then(() => undefined),
     // Both uploads are mutations - they write bytes and register a row - so they
     // come from the same gateway as `run`, not from a second path.
@@ -3807,6 +3833,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
       case '': return <PageHome ctx={ctx} />
       case 'catalog': return <PageCatalog ctx={ctx} />
       case 'signin': return <PageSignIn ctx={ctx} />
+      case 'confirm-email': return <EmailLinkConfirm ctx={ctx} />
       case 'auth-error': return <AuthLinkError expired={route.parts[0] === 'otp_expired'} signedIn={!!me} />
       case 'settings':
       case 'profile': return <PageSettings

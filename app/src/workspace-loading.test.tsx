@@ -6,6 +6,7 @@ const mock = vi.hoisted(() => ({
   load: vi.fn(),
   verifyOtp: vi.fn(),
   verifyCode: null as null | ((email: string, code: string) => Promise<void>),
+  verifyLink: null as null | ((tokenHash: string) => Promise<void>),
   authChanged: null as null | ((event: string, session: { user: { id: string; email: string } } | null) => void),
   root: null as import('react-dom/client').Root | null,
 }))
@@ -18,8 +19,9 @@ vi.mock('./client', () => ({ configured: true, supabase: { auth: {
   },
 } } }))
 vi.mock('./live', () => ({ loadLive: mock.load, liveAction: vi.fn(), rememberSignup: vi.fn() }))
-vi.mock('./App', () => ({ default: ({ onVerifyCode }: { onVerifyCode: (email: string, code: string) => Promise<void> }) => {
+vi.mock('./App', () => ({ default: ({ onVerifyCode, onVerifyLink }: { onVerifyCode: (email: string, code: string) => Promise<void>, onVerifyLink: (tokenHash: string) => Promise<void> }) => {
   mock.verifyCode = onVerifyCode
+  mock.verifyLink = onVerifyLink
   return <h1>Workspace ready</h1>
 } }))
 vi.mock('react-dom/client', async (original) => {
@@ -50,6 +52,12 @@ it('shows the real pending loader, exits on success, and preserves failure and r
     expect(mock.verifyOtp).toHaveBeenCalledWith({ email: 'member@example.test', token: '123456', type: 'email' })
     await expect(mock.verifyCode?.('member@example.test', 'invalid')).rejects.toThrow('six-digit code')
     expect(mock.verifyOtp).toHaveBeenCalledTimes(1)
+    const tokenHash = 'a'.repeat(56)
+    mock.verifyOtp.mockResolvedValueOnce({ error: null })
+    await act(async () => { await mock.verifyLink?.(tokenHash) })
+    expect(mock.verifyOtp).toHaveBeenCalledWith({ token_hash: tokenHash, type: 'email' })
+    await expect(mock.verifyLink?.('invalid')).rejects.toThrow('invalid')
+    expect(mock.verifyOtp).toHaveBeenCalledTimes(2)
 
     mock.load.mockRejectedValueOnce(new Error('Temporary connection failure'))
     await act(async () => {

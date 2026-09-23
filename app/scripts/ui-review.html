@@ -24,7 +24,7 @@ function Review() {
     onAction: async (name, payload) => {
       if (name === 'switchDemoUser') setUserId(payload.userId || null);
       else setData(await demoAction(data, userId, name, payload));
-    }, onSignIn: async () => {}, onVerifyCode: async () => {}, onSignOut: async () => setUserId(null) });
+    }, onSignIn: async () => {}, onVerifyCode: async () => {}, onVerifyLink: async () => { window.__verifyLinkCalls = (window.__verifyLinkCalls || 0) + 1 }, onSignOut: async () => setUserId(null) });
 }
 createRoot(document.getElementById('app')).render(React.createElement(query.has('loader') ? WorkspaceLoader : Review));
 </script></body></html>

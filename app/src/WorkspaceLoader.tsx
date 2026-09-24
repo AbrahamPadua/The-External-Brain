@@ -17,7 +17,7 @@ export default function WorkspaceLoader() {
       <canvas ref={canvasRef} className="workspace-loader-canvas" aria-hidden="true" />
       <header className="workspace-loader-header">
         <img src={decodedBrainLogo} alt="" aria-hidden="true" className="workspace-loader-logo" />
-        <strong className="workspace-loader-brand-title">OPEN LABS</strong>
+        <strong className="workspace-loader-brand-title">The External Brain</strong>
         <span className="workspace-loader-brand-subtitle">DECODED BRAIN</span>
       </header>
       <div className="workspace-loader-status" role="status" aria-live="polite">

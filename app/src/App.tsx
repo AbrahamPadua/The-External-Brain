@@ -1,5 +1,5 @@
 /**
- * Open Labs - front-end dashboard for Decoded Brain at UC San Diego.
+ * The External Brain - front-end dashboard for Decoded Brain at UC San Diego.
  *
  * App is a pure view over `data`. Every state change goes through
  * `onAction(action, payload)` which the host wires to either the local demo
@@ -581,7 +581,7 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
         </div>
         <div className="ol-brand">
           <img className="ol-brand-logo" src={decodedBrainLogo} width="34" height="34" alt="" />
-          <span className="ol-brand-title">Open Labs</span>
+          <span className="ol-brand-title">The External Brain</span>
           <span className="ol-brand-divider">/</span>
           <span className="ol-brand-sub">Decoded Brain</span>
         </div>
@@ -716,7 +716,7 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
           await ctx.onVerifyCode?.(email.trim(), code)
         }}>
           <h4>{emailSent ? 'Email sent — enter your code here' : 'Have a six-digit email code?'}</h4>
-          <Field label="Email code" hint="Use the code from your latest Open Labs email, if one is included.">
+          <Field label="Email code" hint="Use the code in your latest email from The External Brain, if one is included.">
             <input ref={codeInputRef} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
               maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} disabled={ctx.busy} />
           </Field>
@@ -2187,7 +2187,7 @@ function EmailLinkConfirm({ ctx }: { ctx: Ctx }) {
         if (!await ctx.onVerifyLink?.(tokenHash)) return
         window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/')
         window.dispatchEvent(new Event('hashchange'))
-      }}>Sign in to Open Labs</button>
+      }}>Sign in to The External Brain</button>
     </div>
   )
 }
@@ -2205,7 +2205,7 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
   return (
     <div>
       <div className="section">
-        <h1>Sign in to Open Labs</h1>
+        <h1>Sign in to The External Brain</h1>
         <p className="muted">
           Decoded Brain at UC San Diego. Members sign in through email - there is
           no password to remember.
@@ -2345,7 +2345,7 @@ function PageSettings({
           {previewing ? (
             <>
               <p className="muted">
-                You are viewing Open Labs as {previewRoles!.length ? previewRoles!.join(' + ') : 'an ordinary Member'}.
+                You are viewing The External Brain as {previewRoles!.length ? previewRoles!.join(' + ') : 'an ordinary Member'}.
               </p>
               <button className="btn ghost" disabled={ctx.busy} onClick={() => setPreviewRoles(null)}>Exit preview</button>
             </>
@@ -2647,7 +2647,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
         <div className="hero">
           <h1>A shared workspace for student research.</h1>
           <p className="muted" style={{ maxWidth: '52ch' }}>
-            Open Labs is where Decoded Brain initiatives at UC San Diego publish their
+            The External Brain is where Decoded Brain initiatives at UC San Diego publish their
             work, run weekly reporting, and give each other structured feedback.
           </p>
         </div>
@@ -3866,7 +3866,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
         {previewing ? (
           <div className="preview-banner" role="status">
             <span>
-              <strong>Role preview</strong> — you are seeing Open Labs as
+              <strong>Role preview</strong> — you are seeing The External Brain as
               {' '}{previewRoles!.length ? previewRoles!.join(' + ') : 'an ordinary Member'}.
               Nothing can be changed while this is on, and your real
               {' '}{actualRoles.length ? actualRoles.join(' + ') : 'Member'} access is untouched.

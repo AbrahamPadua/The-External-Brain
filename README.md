@@ -1,4 +1,4 @@
-# Open Labs · Decoded Brain UCSD
+# The External Brain · Decoded Brain UCSD
 
 React/TypeScript client for GitHub Pages and a Supabase PostgreSQL backend. Account approval is separate from email verification and initiative participation. New sign-ups remain pending until Operations or Research approves them.
 
@@ -25,7 +25,7 @@ Push this repository to the chosen organization repository. Under **Settings > P
 - `VITE_SUPABASE_URL` — the `https://<project-ref>.supabase.co` base URL, with no path, query or fragment.
 - `VITE_SUPABASE_ANON_KEY` — a publishable `sb_publishable_...` key or a legacy `anon` JWT. Never a service-role key or an `sb_secret_...` key.
 
-Then run the **Publish Open Labs** workflow (`workflow_dispatch`, or a push to `main`/`master`). Its prebuild guard refuses to deploy if either variable is missing or wrongly shaped, so the fictional demo data set is never published as if it were live. Validate that guard offline before pushing with `node app/scripts/check-pages-config.mjs` from the repository root; it replays the workflow guard against synthetic fixtures and reads no `.env`, project settings or network. All protected data stays in Supabase; the public JavaScript bundle contains only the publishable/anon key. Hash routes work under either a custom domain or repository subpath. The Pages source is already set to GitHub Actions and both repository variables are present; this code has not been pushed and no deployment has run yet.
+Then run the **Publish The External Brain** workflow (`workflow_dispatch`, or a push to `main`/`master`). Its prebuild guard refuses to deploy if either variable is missing or wrongly shaped, so the fictional demo data set is never published as if it were live. Validate that guard offline before pushing with `node app/scripts/check-pages-config.mjs` from the repository root; it replays the workflow guard against synthetic fixtures and reads no `.env`, project settings or network. All protected data stays in Supabase; the public JavaScript bundle contains only the publishable/anon key. Hash routes work under either a custom domain or repository subpath. The Pages source is already set to GitHub Actions and both repository variables are present; this code has not been pushed and no deployment has run yet.
 
 Do not switch members from Notion until the approved-account gate, email delivery, live permissions and migration reconciliation have been verified against the selected project. No Notion import has been performed yet.
 

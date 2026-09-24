@@ -1,4 +1,4 @@
-# Open Labs backend contract
+# The External Brain backend contract
 
 Apply ALL numbered files in `supabase/migrations/` in order in a new Supabase project. Later migrations supersede the initial policies and commands; applying only the first file is unsafe. No migration contains project credentials. The available migration set is `001`–`007`, all applied on the target project; `007` (`storage_privacy`) was confirmed applied by the operator and the local database checks pass.
 

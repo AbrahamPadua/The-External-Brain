@@ -70,7 +70,7 @@ try {
     if (name === 'expired-link') state.authRecovery = await evaluate(`document.querySelector('h1')?.textContent.includes('sign-in link') && !!document.querySelector('a[href="#/signin"]') && !document.body.textContent.includes('Nothing here')`)
     if (name === 'signin-confirm') {
       state.confirmWaitsForClick = await evaluate(`document.querySelector('h1')?.textContent === 'Finish signing in' && !window.__verifyLinkCalls`)
-      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in to Open Labs')).click()`)
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in to The External Brain')).click()`)
       state.confirmSignsIn = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(window.__verifyLinkCalls === 1 && location.hash === '#/'),100))`)
     }
     if (name === 'signin-code') {

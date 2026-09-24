@@ -1,4 +1,4 @@
-name: Publish Open Labs
+name: Publish The External Brain
 on:
   workflow_dispatch:
   push:

@@ -1,4 +1,4 @@
--- Open Labs UCSD: initial production schema. Apply through Supabase migrations.
+-- The External Brain UCSD: initial production schema. Apply through Supabase migrations.
 create extension if not exists pgcrypto;
 
 create type public.account_status as enum ('pending','approved','rejected','suspended');

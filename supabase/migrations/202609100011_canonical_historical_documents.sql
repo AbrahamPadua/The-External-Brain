@@ -63,7 +63,7 @@ alter table public.documents
   ) not valid;
 alter table public.documents validate constraint documents_historical_import_shape;
 
--- The original author is provenance, not an Open Labs account.  A null value
+-- The original author is provenance, not an account on The External Brain.  A null value
 -- means the source did not identify an author; no identity is fabricated.
 alter table public.document_versions
   alter column created_by drop not null;

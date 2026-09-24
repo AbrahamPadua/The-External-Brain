@@ -22,7 +22,7 @@ function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KE
 function signInMessage(error:{message:string;code?:string},creating:boolean):string{
  const code=error.code??''
  if(!creating&&(code==='otp_disabled'||code==='user_not_found'||/sign\s?ups?\s+not\s+allowed|user\s+not\s+found/i.test(error.message))){
- return 'We could not find an Open Labs account for that email. Choose "I am new here" to create one - it asks for your name.'
+ return 'We could not find an account on The External Brain for that email. Choose "I am new here" to create one - it asks for your name.'
  }
  return error.message
 }

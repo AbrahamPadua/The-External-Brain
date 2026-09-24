@@ -1,5 +1,5 @@
 /**
- * Open Labs - local demo engine (mode = 'demo').
+ * The External Brain - local demo engine (mode = 'demo').
  *
  * Everything in this module is FICTIONAL and runs entirely in the browser with
  * no network calls. The seed people (...@example.test) and initiatives are

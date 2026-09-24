@@ -31,13 +31,19 @@ function Root(){
  const [userId,setUserId]=useState<string|null>(null)
  const [authEmail,setAuthEmail]=useState<string|null>(null)
  const [loading,setLoading]=useState(configured)
+ const [minimumLoaderUntil,setMinimumLoaderUntil]=useState(configured?Date.now()+3000:0)
  const [error,setError]=useState('')
  const currentUser=useRef<string|null>(null)
+ useEffect(()=>{
+  if(!minimumLoaderUntil)return
+  const timer=setTimeout(()=>setMinimumLoaderUntil(0),Math.max(0,minimumLoaderUntil-Date.now()))
+  return()=>clearTimeout(timer)
+ },[minimumLoaderUntil])
  const refresh=useCallback(async(uid:string|null)=>{try{const result=await loadLive(uid);if(currentUser.current===uid){setData(result);setError('')}}catch(e){if(currentUser.current===uid){setData(blank);setError(e instanceof Error?e.message:'Unable to load workspace')}}finally{if(currentUser.current===uid)setLoading(false)}},[])
  useEffect(()=>{if(!supabase)return;let alive=true;let sessionInitialized=false
  const applySession=(uid:string|null,email:string|null,fromAuthEvent:boolean)=>{
  if(sessionInitialized&&currentUser.current===uid){setAuthEmail(email);return}
- sessionInitialized=true;currentUser.current=uid;setUserId(uid);setAuthEmail(email);setData(blank);setLoading(true)
+ sessionInitialized=true;currentUser.current=uid;setUserId(uid);setAuthEmail(email);setData(blank);setMinimumLoaderUntil(Date.now()+3000);setLoading(true)
  // Supabase auth callbacks must finish before a database request starts.
  if(fromAuthEvent)setTimeout(()=>{if(alive)void refresh(uid)},0);else void refresh(uid)
  }
@@ -81,8 +87,8 @@ function Root(){
  if(error)throw new Error(error.message)
  }
  async function signOut(){if(supabase){const {error}=await supabase.auth.signOut();if(error)throw error}setUserId(null);setAuthEmail(null)}
- if(loading)return <WorkspaceLoader />
- if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setLoading(true);void refresh(userId)}}>Try again</button></div>
+ if(loading||minimumLoaderUntil)return <WorkspaceLoader />
+ if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setMinimumLoaderUntil(Date.now()+3000);setLoading(true);void refresh(userId)}}>Try again</button></div>
  return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onVerifyCode={verifyEmailCode} onVerifyLink={verifyEmailLink} onSignOut={signOut} authEmail={authEmail}/>
 }
 createRoot(document.getElementById('app')!).render(<React.StrictMode><Root/></React.StrictMode>)

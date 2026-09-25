@@ -22,13 +22,13 @@ it('shows a retry without replacing a missing image or its durable path', async 
   expect(host.textContent).toContain('Retry image')
   expect(host.textContent).not.toContain('not authorized')
 })
-it('refreshes the URL, checks decoding, and removes the warning', async () => {
+it.each(['initiative-images', 'initiative-content-images'] as const)('refreshes the URL from %s and removes the warning', async (bucket) => {
   vi.spyOn(HTMLImageElement.prototype, 'decode').mockResolvedValue(undefined)
   vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(100)
   vi.mocked(retryDocumentImage).mockResolvedValue('https://images.example/refreshed.png')
-  await act(async () => root.render(<DocumentImages><img data-object-path="initiative/source.png" alt="Source diagram" /></DocumentImages>))
+  await act(async () => root.render(<DocumentImages bucket={bucket}><img data-object-path="initiative/source.png" alt="Source diagram" /></DocumentImages>))
   await act(async () => host.querySelector('button')!.click())
-  expect(retryDocumentImage).toHaveBeenCalledWith('initiative/source.png')
+  expect(retryDocumentImage).toHaveBeenCalledWith('initiative/source.png', bucket)
   expect(host.querySelector('img')?.src).toBe('https://images.example/refreshed.png')
   expect(host.querySelector('button')).toBeNull()
   expect(host.querySelector('img')?.getAttribute('data-object-path')).toBe('initiative/source.png')

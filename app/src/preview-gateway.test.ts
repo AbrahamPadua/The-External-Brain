@@ -44,6 +44,7 @@ beforeEach(() => {
 const entrypoints: { name: string; call: () => Promise<unknown> }[] = [
   { name: 'run', call: () => gateway.run('deleteTask', { taskId: 't' }, 'Deleted.') },
   { name: 'uploadRmImage', call: () => gateway.uploadRmImage('d1', 'i1', png()) },
+  { name: 'uploadInitiativeImage', call: () => gateway.uploadInitiativeImage('i1', png()) },
   { name: 'uploadTaskImage', call: () => gateway.uploadTaskImage('t1', 'i1', png()) },
 ]
 

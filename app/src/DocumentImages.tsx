@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { retryDocumentImage } from './live'
 
 /** Viewer-only recovery. It never writes placeholder text into document content. */
-export function DocumentImages({ children }: { children: ReactNode }) {
+export function DocumentImages({ children, bucket = 'initiative-images' }: { children: ReactNode; bucket?: 'initiative-images' | 'initiative-content-images' }) {
   const root = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string[]>([])
@@ -27,7 +27,7 @@ export function DocumentImages({ children }: { children: ReactNode }) {
     const requestGeneration = generation.current
     setBusy(old => [...old, path])
     try {
-      const url = await retryDocumentImage(path)
+      const url = await retryDocumentImage(path, bucket)
       if (generation.current !== requestGeneration) return
       const probe = new Image()
       probe.src = url

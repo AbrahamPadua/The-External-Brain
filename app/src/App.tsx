@@ -117,6 +117,8 @@ import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { DocumentImages } from './DocumentImages'
+import { ABSTRACT_MAX, canEditInitiative, initiativeAbstract, textToHtml } from './initiative-details'
+import { cleanImportedText } from './imported-title'
 import decodedBrainLogo from './assets/decoded-brain-logo.svg'
 import { readDarkTheme } from './theme'
 import NeuralBackground from './NeuralBackground'
@@ -174,6 +176,7 @@ type Ctx = {
   onVerifyLink?: (tokenHash: string) => Promise<boolean>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
+  uploadInitiativeImage: (initiativeId: string, file: File) => Promise<{ path: string; url: string }>
   uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
 }
 
@@ -253,6 +256,7 @@ export type MutationGateway = {
   guard: (fn: () => Promise<unknown>, okMsg?: string) => Promise<boolean>
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string; url: string }>
+  uploadInitiativeImage: (initiativeId: string, file: File) => Promise<{ path: string; url: string }>
   uploadTaskImage: (taskId: string, initiativeId: string, file: File) => Promise<{ path: string; url: string }>
 }
 
@@ -320,6 +324,8 @@ export function createMutationGateway(opts: {
     run: (action, payload, okMsg) => guard(() => dispatch(action, payload), okMsg),
     uploadRmImage: (documentId, initiativeId, file) =>
       upload('uploadRmImage', { documentId, initiativeId, file, result: null }),
+    uploadInitiativeImage: (initiativeId, file) =>
+      upload('uploadInitiativeImage', { initiativeId, file, result: null }),
     uploadTaskImage: (taskId, initiativeId, file) =>
       upload('uploadTaskImage', { taskId, initiativeId, file, result: null }),
   }
@@ -928,39 +934,74 @@ function JoinForm({ ctx, initiativeId }: { ctx: Ctx; initiativeId: string }) {
     </form>
   )
 }
-function EditInitiativeForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
-  const [open, setOpen] = useState(false)
+function InitiativeOverview({ ctx, ini, joinAction }: { ctx: Ctx; ini: Initiative; joinAction: ReactNode }) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [uploads, setUploads] = useState(0)
   const [title, setTitle] = useState(ini.title)
-  const [abstract, setAbstract] = useState(ini.abstract)
   const [category, setCategory] = useState(ini.category)
-  const [motivation, setMotivation] = useState(ini.motivation ?? '')
-  const [overviewHtml, setOverviewHtml] = useState(ini.overviewHtml ?? '')
-  if (!open) return <button className="btn ghost sm" onClick={() => setOpen(true)}>Edit initiative</button>
+  const currentAbstract = ini.abstractHtml || textToHtml(initiativeAbstract(ini.abstract, ini.overviewHtml))
+  const currentMotivation = ini.motivationHtml || textToHtml(cleanImportedText(ini.motivation ?? ''))
+  const [abstractHtml, setAbstractHtml] = useState(currentAbstract)
+  const [motivationHtml, setMotivationHtml] = useState(currentMotivation)
+  const canEdit = canEditInitiative(ini, ctx.data.people.find(p => p.id === ctx.userId))
+  const active = editing && canEdit
+  const abstract = initiativeAbstract('', abstractHtml)
+  const motivation = initiativeAbstract('', motivationHtml)
   const valid = title.trim().length >= 3 && title.trim().length <= 200
-    && abstract.trim().length >= 20 && abstract.trim().length <= 2000
+    && abstract.length >= 20 && abstract.length <= ABSTRACT_MAX && abstractHtml.length <= ABSTRACT_MAX
     && category.trim().length > 0 && category.trim().length <= 100
-    && motivation.trim().length <= 20000 && overviewHtml.length <= 100000
-  return (
-    <form className="stack" style={{ marginTop: 16 }} onSubmit={async (e) => {
-      e.preventDefault()
-      const ok = await ctx.run('updateInitiativeDetails', {
-        initiativeId: ini.id, title: title.trim(), abstract: abstract.trim(),
-        category: category.trim(), motivation: motivation.trim(), overviewHtml,
+    && motivation.length <= 20000 && motivationHtml.length <= ABSTRACT_MAX
+  const upload = async (file: File) => {
+    setUploads(n => n + 1)
+    try { return await ctx.uploadInitiativeImage(ini.id, file) }
+    finally { setUploads(n => Math.max(0, n - 1)) }
+  }
+  const start = () => {
+    setTitle(ini.title); setCategory(ini.category)
+    setAbstractHtml(currentAbstract); setMotivationHtml(currentMotivation); setEditing(true)
+  }
+  const save = async () => {
+    if (!valid || uploads || saving) return
+    setSaving(true)
+    try {
+      const ok = await ctx.run('updateInitiativeContent', {
+        initiativeId: ini.id, title: title.trim(), category: category.trim(),
+        abstractHtml, motivationHtml,
       }, 'Initiative updated.')
-      if (ok) setOpen(false)
-    }}>
-      <h4>Edit initiative</h4>
-      <Field label="Title"><input value={title} maxLength={200} disabled={ctx.busy} onChange={(e) => setTitle(e.target.value)} /></Field>
-      <Field label="Abstract"><textarea value={abstract} maxLength={2000} disabled={ctx.busy} onChange={(e) => setAbstract(e.target.value)} /></Field>
-      <Field label="Category"><input value={category} maxLength={100} disabled={ctx.busy} onChange={(e) => setCategory(e.target.value)} /></Field>
-      <Field label="Motivation"><textarea value={motivation} maxLength={20000} disabled={ctx.busy} onChange={(e) => setMotivation(e.target.value)} /></Field>
-      <Field label="Overview"><Editor body={overviewHtml} onChange={setOverviewHtml} readOnly={ctx.busy} /></Field>
-      <div className="btn-row">
-        <button className="btn sm" disabled={ctx.busy || !valid}>Save details</button>
-        <button type="button" className="btn ghost sm" disabled={ctx.busy} onClick={() => setOpen(false)}>Cancel</button>
+      if (ok) setEditing(false)
+    } finally { setSaving(false) }
+  }
+  return <div className="card initiative-overview" aria-busy={saving}>
+    {active ? <div className="initiative-inline-metadata">
+      <Field label="Title"><input value={title} maxLength={200} disabled={saving} onChange={e => setTitle(e.target.value)} /></Field>
+      <Field label="Category"><input value={category} maxLength={100} disabled={saving} onChange={e => setCategory(e.target.value)} /></Field>
+    </div> : null}
+    <section className="initiative-content-section" aria-label="Abstract">
+      <h3>Abstract</h3>
+      <div className="initiative-abstract">
+        {active ? <Editor key="abstract-edit" body={abstractHtml} onChange={setAbstractHtml} readOnly={saving}
+          uploadScopeId={`${ini.id}:abstract`} onUploadImage={upload} />
+          : <DocumentImages key={currentAbstract} bucket="initiative-content-images"><Editor body={sanitize(currentAbstract, ABSTRACT_MAX)} readOnly /></DocumentImages>}
       </div>
-    </form>
-  )
+    </section>
+    {active || ini.motivation || ini.motivationHtml ? <section className="initiative-content-section" aria-label="Motivation">
+      <h3>Motivation</h3>
+      {active ? <Editor key="motivation-edit" body={motivationHtml} onChange={setMotivationHtml} readOnly={saving}
+        uploadScopeId={`${ini.id}:motivation`} onUploadImage={upload} />
+        : <DocumentImages key={currentMotivation} bucket="initiative-content-images"><Editor body={sanitize(currentMotivation, ABSTRACT_MAX)} readOnly /></DocumentImages>}
+    </section> : null}
+    <div className="initiative-overview-actions">
+      <div className="initiative-edit-action">
+        {active ? <div className="btn-row">
+          <button className="btn sm" disabled={ctx.busy || !!uploads || saving || !valid} onClick={() => void save()}>Save details</button>
+          <button className="btn ghost sm" disabled={saving || !!uploads} onClick={() => setEditing(false)}>Cancel</button>
+          {uploads ? <span role="status">Uploading image...</span> : null}
+        </div> : canEdit ? <button className="btn ghost sm" onClick={start}>Edit initiative</button> : null}
+      </div>
+      <div className="initiative-join-action">{joinAction}</div>
+    </div>
+  </div>
 }
 
 function AssignLeadForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
@@ -1014,8 +1055,8 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   }
   
   return (
-    <div className="card" style={{ marginTop: 12 }}>
-      <h4>Manage cover</h4>
+    <Modal titleId="manage-cover-title" onRequestClose={() => { if (!ctx.busy) setOpen(false) }}>
+      <h4 id="manage-cover-title">Manage cover</h4>
       
       {conflict ? (
         <p style={{ color: '#dc2626', marginBottom: 12, marginTop: 8, fontWeight: 'bold', fontSize: 14 }}>
@@ -1060,7 +1101,7 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
           <button type="button" className="btn sm ghost" onClick={() => setOpen(false)}>Close</button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -2966,7 +3007,9 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
   return (
     <div>
-      <div style={{ height: 160, background: bg, margin: '-20px -20px 20px -20px' }} />
+      <div className="initiative-cover" style={{ background: bg }}>
+        {ctx.approved && (ini.leadId === ctx.userId || ctx.isAdmin) ? <div className="initiative-cover-controls"><CoverForm ctx={ctx} ini={ini} /></div> : null}
+      </div>
       <div className="section">
         <p className="muted"><a href="#/catalog"><ArrowLeft size={13} /> Catalog</a></p>
         <div className="between">
@@ -2992,40 +3035,12 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         ))}
       </div>
 
-      {tab === 'overview' ? (
-        <div className="card">
-          <div className="between">
-            <h3>Abstract</h3>
-            {(ini.leadId === ctx.userId || ctx.isAdmin) ? <CoverForm ctx={ctx} ini={ini} /> : null}
-          </div>
-          <p style={{ marginTop: 8 }}>{ini.abstract}</p>
-          {internal && (ini.leadId === ctx.userId || ctx.isResearch) ? <EditInitiativeForm key={ini.id} ctx={ctx} ini={ini} /> : null}
-          {ini.overviewHtml ? (
-            <div style={{ marginTop: 24 }}>
-              <h3>Overview</h3>
-              <Editor body={sanitize(ini.overviewHtml)} readOnly />
-            </div>
-          ) : null}
-          {ini.motivation ? (
-            <div style={{ marginTop: 24 }}>
-              <h3>Motivation</h3>
-              {ini.motivation.split(/\n\s*\n/).filter(Boolean).map((paragraph, index) =>
-                <p key={index} style={{ whiteSpace: 'pre-wrap', marginTop: 12 }}>{paragraph}</p>)}
-            </div>
-          ) : null}
-          <div style={{ marginTop: 16 }}>
-            {!ctx.approved ? (
-              <p className="muted">Sign in with an approved account to join or see the workspace.</p>
-            ) : isMember ? (
-              <Pill tone="good">You are on this team</Pill>
-            ) : myPendingJoin ? (
-              <Pill tone="warn">Join request pending</Pill>
-            ) : (
-              <JoinForm ctx={ctx} initiativeId={ini.id} />
-            )}
-          </div>
-        </div>
-      ) : null}
+      {tab === 'overview' ? <InitiativeOverview key={ini.id} ctx={ctx} ini={ini} joinAction={
+        !ctx.approved ? <p className="muted">Sign in with an approved account to join or see the workspace.</p>
+          : isMember ? <Pill tone="good">You are on this team</Pill>
+          : myPendingJoin ? <Pill tone="warn">Join request pending</Pill>
+          : <JoinForm ctx={ctx} initiativeId={ini.id} />
+      } /> : null}
 
       {tab === 'tasks' && internal ? (
         <div className="card">
@@ -3841,7 +3856,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
 
   // One gateway for every mutation, so no entrypoint can route around the
   // preview refusal. src/preview-gateway.test.ts exercises these exact objects.
-  const { guard, run, uploadRmImage, uploadTaskImage } = useMemo(
+  const { guard, run, uploadRmImage, uploadTaskImage, uploadInitiativeImage } = useMemo(
     () => createMutationGateway({
       onAction,
       isPreviewing: () => previewingRef.current,
@@ -3871,6 +3886,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     // come from the same gateway as `run`, not from a second path.
     uploadRmImage,
     uploadTaskImage,
+    uploadInitiativeImage,
   }
 
   const leads = !!userId && data.initiatives.some((i) => i.leadId === userId)

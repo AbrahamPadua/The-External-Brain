@@ -7,7 +7,7 @@ export type TaskStatus = 'planned' | 'pending' | 'finished'
  */
 export const TASK_DETAILS_MAX = 8000
 export type InitiativeTask = { id:string; title:string; description:string; status:TaskStatus; assigneeId?:string; dueAt?:string }
-export type Initiative = { id: string; title: string; abstract: string; leadId: string; leadName?: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; overviewHtml?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
+export type Initiative = { id: string; title: string; abstract: string; leadId: string; leadName?: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; overviewHtml?: string; abstractHtml?: string; motivationHtml?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
 /**
  * A document is a Roast Me ('rm' - constructive criticism of a team's work) or a
  * peer review. `targetMonday` is the Monday of the Los Angeles week an unsubmitted

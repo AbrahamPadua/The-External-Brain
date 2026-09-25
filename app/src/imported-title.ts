@@ -2,7 +2,7 @@
 export function cleanImportedText(value: string): string {
   return value.replaceAll('â€”', '—').replaceAll('â€“', '–')
     .replaceAll('â€™', '’').replaceAll('â€˜', '‘')
-    .replaceAll('â€œ', '“').replaceAll('â€\u009d', '”').replaceAll('Â ', ' ')
+    .replaceAll('â€œ', '“').replaceAll('â€\u009d', '”').replaceAll('â€', '”').replaceAll('Â ', ' ')
 }
 
 export function importedDocumentTitle(value: string, kind: string, relatedRmTitle?: string): string {

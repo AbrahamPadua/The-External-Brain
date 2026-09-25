@@ -1,3 +1,5 @@
+import { ABSTRACT_MAX, canEditInitiative, initiativeAbstract } from './initiative-details'
+import { cleanImportedText } from './imported-title'
 /**
  * The External Brain - local demo engine (mode = 'demo').
  *
@@ -80,7 +82,7 @@ const REVIEW_TEMPLATE =
   '<h2>Summary</h2><p></p><h2>Strengths</h2><p></p><h2>Recommendations</h2><p></p>'
 
 /** Strip anything that could execute if rich text is ever rendered as HTML. */
-export function sanitize(html: string): string {
+export function sanitize(html: string, maxLength = 20000): string {
   return String(html ?? '')
     .replace(/<\s*(script|style|iframe|object|embed|link|meta|base)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
     .replace(/<\s*(script|style|iframe|object|embed|link|meta|base)\b[^>]*>/gi, '')
@@ -88,7 +90,7 @@ export function sanitize(html: string): string {
     .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
     .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
     .replace(/(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"')
-    .slice(0, 20_000)
+    .slice(0, maxLength)
 }
 
 function encodeProposal(category: string, abstract: string, plan: string, motivation: string): string {
@@ -722,6 +724,16 @@ const handlers: Record<string, Handler> = {
 
   // Task description images: the same validated upload and durable object path
   // as a Roast Me image, limited to whoever may edit the task's description.
+  uploadInitiativeImage: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find(i => i.id === p.initiativeId), 'Initiative not found.')
+    if (!canEditInitiative(ini, me)) deny('Only initiative members or Research can attach images.')
+    const file = p.file as File
+    const problem = imageFileError(file)
+    if (problem) deny(problem)
+    p.result = { path: `${ini.id}/${uid()}.${imageExtension(file.type)}`, url: URL.createObjectURL(file) }
+  },
+
   uploadTaskImage: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.tasks.some((t) => t.id === p.taskId)),
@@ -977,21 +989,30 @@ const handlers: Record<string, Handler> = {
     audit(d, me, 'initiative.transfer', `Transferred leadership of "${ini.title}" [${ini.id}] to ${target.name}`)
   },
 
+  updateInitiativeContent: (ctx, p) => {
+    if (String(p.abstractHtml ?? '').length > ABSTRACT_MAX || String(p.motivationHtml ?? '').length > ABSTRACT_MAX) deny('Content must be 100000 characters or fewer.')
+    const abstractHtml = sanitize(cleanImportedText(String(p.abstractHtml ?? '')), ABSTRACT_MAX)
+    const motivationHtml = sanitize(cleanImportedText(String(p.motivationHtml ?? '')), ABSTRACT_MAX)
+    if (abstractHtml.length > ABSTRACT_MAX || motivationHtml.length > ABSTRACT_MAX) deny('Content must be 100000 characters or fewer.')
+    handlers.updateInitiativeDetails(ctx, {...p, abstract: initiativeAbstract('', abstractHtml), motivation: initiativeAbstract('', motivationHtml)})
+    const ini = need(ctx.d.initiatives.find(i => i.id === p.initiativeId), 'Initiative not found.')
+    Object.assign(ini, {abstractHtml, motivationHtml})
+  },
+
   updateInitiativeDetails: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
-    if (!isApproved(me) || (ini.leadId !== me.id && !isResearch(me))) deny('Only the assigned lead or Research can edit this initiative.')
+    if (!canEditInitiative(ini, me)) deny('Only initiative members or Research can edit this initiative.')
     const title = String(p.title ?? '').trim()
-    const abstract = String(p.abstract ?? '').trim()
+    const abstract = cleanImportedText(String(p.abstract ?? '').trim())
     const category = String(p.category ?? '').trim()
-    const motivation = String(p.motivation ?? '').trim()
-    const overviewHtml = String(p.overviewHtml ?? '').trim()
+    const motivation = cleanImportedText(String(p.motivation ?? '').trim())
+    const overviewHtml = ''
     if (title.length < 3 || title.length > 200) deny('Title must be 3 to 200 characters.')
-    if (abstract.length < 20 || abstract.length > 2000) deny('Abstract must be 20 to 2000 characters.')
+    if (abstract.length < 20 || abstract.length > ABSTRACT_MAX) deny('Abstract must be 20 to 100000 characters.')
     if (!category || category.length > 100) deny('Category must be 1 to 100 characters.')
     if (motivation.length > 20000) deny('Motivation must be at most 20000 characters.')
-    if (overviewHtml.length > 100000) deny('Overview must be at most 100000 characters.')
-    Object.assign(ini, { title, abstract, category, motivation, overviewHtml })
+    Object.assign(ini, { title, abstract, category, motivation, overviewHtml, abstractHtml: '', motivationHtml: '' })
     audit(d, me, 'initiative.details.update', `Updated details of "${title}" [${ini.id}]`)
   },
 

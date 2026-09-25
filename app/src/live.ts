@@ -1,3 +1,4 @@
+import { initiativeAbstract } from './initiative-details'
 import { supabase } from './client'
 import { cleanImportedText, importedDocumentTitle } from './imported-title'
 import type { Data, DocumentRecord, ProfileDetails } from './model'
@@ -74,8 +75,8 @@ async function signPaths(bucket: string, paths: string[]): Promise<Map<string, s
   }
   return urls
 }
-export async function retryDocumentImage(path: string): Promise<string> {
-  const urls = await signPaths(IMAGES_BUCKET, [path])
+export async function retryDocumentImage(path: string, bucket: 'initiative-images' | 'initiative-content-images' = 'initiative-images'): Promise<string> {
+  const urls = await signPaths(bucket, [path])
   const url = urls.get(path)
   if (!url) throw new Error('Image unavailable')
   return url
@@ -102,7 +103,7 @@ export const stripSignedUrls = (htmlStr: string) => {
 }
 export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
- if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state}
+ if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:cleanImportedText(i.summary),status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state}
  const profiles=await rows('profiles')
  const mine=profiles.find(p=>p.id===userId)
  // A profile with no name yet: finish the signup once, then read the row back.
@@ -111,7 +112,7 @@ export async function loadLive(userId:string|null):Promise<Data>{
  // placeholder for a profile that has not been filled in yet.
  state.people=profiles.map(p=>({id:p.id,name:p.display_name??'',email:'',status:p.account_status,roles:[],major:p.major??'',interests:p.interests??''}))
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
- state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state
+ state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:cleanImportedText(i.summary),status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state
  }
  const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles'].map(rows))
  // Which weeks Research has actually opened. A Roast Me draft can name a week
@@ -132,7 +133,8 @@ export async function loadLive(userId:string|null):Promise<Data>{
   ...tasks.flatMap(t=>objectPathsIn(String(t.details??''))),
  ])
  const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id??'',leadName:i.lead_name??'',members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,overviewHtml:i.content?.html??'',coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
+ const initiativeUrls=await signPaths('initiative-content-images',initiatives.flatMap(i=>[...objectPathsIn(i.content?.abstract_html??''),...objectPathsIn(i.content?.motivation_html??'')]))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.content?.html),status:i.status,category:i.content?.category||'Research',leadId:i.lead_id??'',leadName:i.lead_name??'',members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:cleanImportedText(i.content?.motivation??''),overviewHtml:i.content?.html??'',abstractHtml:applyImageUrls(i.content?.abstract_html??'',initiativeUrls),motivationHtml:applyImageUrls(i.content?.motivation_html??'',initiativeUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
  state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
  state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:historical?importedDocumentTitle(title(content,d.kind==='rm'?'Roast Me':'Peer review'),d.kind,d.kind==='review'?shaped.filter(x=>x.d.id===d.reviewed_document_id).map(x=>importedDocumentTitle(title(x.content,'Roast Me'),'rm'))[0]:undefined):title(content,d.kind==='rm'?'Roast Me':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:historical?undefined:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourceDate:typeof content?.source_date==='string'?content.source_date:typeof content?.source_date_text==='string'?content.source_date_text:undefined,sourcePeriod:typeof content?.source_period==='string'?(historical?cleanImportedText(content.source_period):content.source_period):undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?(historical?cleanImportedText(content.source_week):content.source_week):undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
  state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,anchorStart:t.anchor_start??undefined,anchorEnd:t.anchor_end??undefined,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
@@ -240,6 +242,7 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  case 'adjustHp':return rpc('adjust_hp',{p_initiative:p.initiativeId??id,p_points:Number(p.points??p.delta),p_reason:p.reason})
  case 'setRole':return rpc('change_role',{p_user:p.userId??id,p_role:p.role,p_enabled:p.enabled??p.grant??true})
  case 'transferLead':return rpc('transfer_lead',{p_initiative:p.initiativeId,p_user:p.userId})
+ case 'updateInitiativeContent':return rpc('update_initiative_content',{p_initiative:p.initiativeId,p_title:p.title,p_category:p.category,p_abstract_html:stripSignedUrls(p.abstractHtml??''),p_motivation_html:stripSignedUrls(p.motivationHtml??'')})
  case 'updateInitiativeDetails':return rpc('update_initiative_details',{p_initiative:p.initiativeId,p_title:p.title,p_summary:p.abstract,p_category:p.category,p_motivation:p.motivation,p_html:stripSignedUrls(p.overviewHtml??'')})
  case 'leaveInitiative':return rpc('leave_initiative',{p_initiative:p.initiativeId,p_user:p.userId??_userId})
  case 'setPolicy':return rpc('set_policy',{p_penalty:p.penalty,p_reward:p.reward})
@@ -278,6 +281,13 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  // Task description images use the same bucket, validation, durable object path
  // and rollback as Roast Me images; only the registering RPC differs, because the
  // read audience is a task's audience rather than a document's.
+ case 'uploadInitiativeImage':{
+   const path=await uploadImage('initiative-content-images',p.initiativeId,p.file as File)
+   const {data,error}=await supabase!.storage.from('initiative-content-images').createSignedUrl(path,SIGNED_URL_TTL)
+   if(error||!data?.signedUrl)throw new Error('Image uploaded but could not be displayed. Please retry.')
+   p.result={path,url:data.signedUrl}
+   return
+ }
  case 'uploadTaskImage':{
    const f=p.file as File
    const path=await uploadImage(IMAGES_BUCKET,p.initiativeId,f)

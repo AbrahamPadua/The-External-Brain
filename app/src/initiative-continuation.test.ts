@@ -16,7 +16,7 @@ describe('demo initiative continuation', () => {
     }
     await expect(demoAction(data, 'sam', 'updateInitiativeDetails', details)).rejects.toThrow()
     const edited = await demoAction(data, 'maya', 'updateInitiativeDetails', details)
-    expect(edited.initiatives.find((i) => i.id === ini.id)?.overviewHtml).toBe('<p>Next phase</p>')
+    expect(edited.initiatives.find((i) => i.id === ini.id)?.overviewHtml).toBe('')
     await expect(demoAction(edited, 'sam', 'transferLead', { initiativeId: ini.id, userId: 'alex' })).rejects.toThrow()
     const assigned = await demoAction(edited, 'maya', 'transferLead', { initiativeId: ini.id, userId: 'sam' })
     const resumed = assigned.initiatives.find((i) => i.id === ini.id)!

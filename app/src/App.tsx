@@ -117,6 +117,7 @@ import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { DocumentImages } from './DocumentImages'
+import { Progress } from './Progress'
 import { ABSTRACT_MAX, canEditInitiative, initiativeAbstract, textToHtml } from './initiative-details'
 import { cleanImportedText } from './imported-title'
 import decodedBrainLogo from './assets/decoded-brain-logo.svg'
@@ -1526,7 +1527,7 @@ function referencedVersion(ctx: Ctx, doc: DocumentRecord) {
   if (!doc.targetId) return null
   const target = ctx.data.documents.find((d) => d.id === doc.targetId)
   if (!target) return null
-  const pinned = ctx.data.obligations.find((o) => o.id === doc.obligationId)?.targetVersion
+  const pinned = ctx.data.obligations.find((o) => o.id === doc.obligationId)?.targetVersion ?? doc.targetVersion
   const versions = versionsOf(target)
   const version = versions.find((v) => v.version === pinned) ?? versions[versions.length - 1]
   return version ? { target, version } : null
@@ -2098,7 +2099,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
       </div>
 
       <p className="muted">
-        <a href={`#/initiative/${ini.id}/documents`}><ArrowLeft size={13} /> Back to {ini.title}</a>
+        <a href={`#/initiative/${ini.id}/progress`}><ArrowLeft size={13} /> Back to {ini.title}</a>
       </p>
     </div>
   )
@@ -2729,8 +2730,8 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
                     { initiativeId: reviewedIni?.id, kind: 'review', targetId: ob.targetId }, 'Draft started.')
                 if (ok && ini) {
                   go(ob.kind === 'rm'
-                    ? `#/initiative/${ob.initiativeId}/documents`
-                    : `#/initiative/${reviewedIni?.id ?? ob.initiativeId}/documents`)
+                    ? `#/initiative/${ob.initiativeId}/progress`
+                    : `#/initiative/${reviewedIni?.id ?? ob.initiativeId}/progress`)
                 }
               }}
             >
@@ -2867,7 +2868,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
             ))}
           </div>
         ) : (
-          <Empty>No Roast Me due right now. You can still start one from your initiative’s Documents tab.</Empty>
+          <Empty>No Roast Me due right now. You can still start one from your initiative’s Progress tab.</Empty>
         )}
       </section>
 
@@ -2968,11 +2969,10 @@ function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClo
 
 function PageInitiative({ ctx }: { ctx: Ctx }) {
   const id = ctx.route.parts[1]
-  const tab = ctx.route.parts[2] ?? 'overview'
+  const tab = ctx.route.parts[2] === 'documents' ? 'progress' : ctx.route.parts[2] ?? 'overview'
   const ini = ctx.data.initiatives.find((i) => i.id === id)
   const [taskModalId,setTaskModalId]=useState<string|null>(null)
   const [documentModalId,setDocumentModalId]=useState<string|null>(null)
-  const [documentSort,setDocumentSort]=useState<DocumentSort>('newest')
   const [taskSort,setTaskSort]=useState<TaskSort>('due')
   if (!ini) return <NotFound />
 
@@ -2983,8 +2983,6 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
   const isMember = !!ctx.userId && (ini.members.includes(ctx.userId) || ini.leadId === ctx.userId)
   const canManage = ini.leadId === ctx.userId || ctx.isAdmin
-  const initiativeDocs = ctx.data.documents.filter((d) => d.initiativeId === ini.id)
-  const docs = sortDocuments(initiativeDocs,documentSort)
   const tasks = sortTasks(ini.tasks,taskSort)
   const joinReqs = ctx.data.requests.filter((r) =>
     r.kind === 'join' && r.initiativeId === ini.id && r.status === 'pending')
@@ -2993,7 +2991,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
   const activity = ctx.data.audit.filter((a) => a.detail.includes(`[${ini.id}]`))
 
   const tabs = internal
-    ? ['overview', 'tasks', 'team', 'documents', 'activity']
+    ? ['overview', 'progress', 'tasks', 'team', 'activity']
     : ['overview', 'team']
 
   const done = ini.tasks.filter((t) => t.status === 'finished').length
@@ -3157,37 +3155,17 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         </div>
       ) : null}
 
-      {tab === 'documents' && internal ? (
-        <div className="card">
-          <div className="between">
-            <h3>Documents</h3>
-            <div className="row">
-              <select aria-label="Sort documents" value={documentSort} onChange={e=>setDocumentSort(e.target.value as DocumentSort)}>
-                <option value="newest">Newest first</option><option value="title">Title</option>
-                <option value="kind">Kind</option><option value="status">Status</option>
-              </select>
-              {isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
-            </div>
-          </div>
-          <div className="table-scroll" role="region" aria-label="Scrollable data table" tabIndex={0}><table className="table" style={{ marginTop: 10 }}>
-            <thead>
-              <tr><th>Title</th><th>Kind</th><th>Status</th><th>Period / submitted</th></tr>
-            </thead>
-            <tbody>
-              {docs.length ? docs.map((d) => (
-                <tr key={d.id}>
-                  <td><a href={`#/document/${d.id}`} onClick={(e)=>{
-                    if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0){e.preventDefault();setDocumentModalId(d.id)}
-                  }}>{d.title}</a></td>
-                  <td>{d.kind === 'rm' ? 'Roast Me' : 'review'}{d.kind === 'rm' && d.targetMonday ? <div className="field-hint">Week of {d.targetMonday}</div> : null}</td>
-                  <td><Pill tone={statusTone(d.status)}>{d.status}</Pill></td>
-                  <td>{documentDateLabel(d)}</td>
-                </tr>
-              )) : <tr><td colSpan={4} className="muted">No documents yet.</td></tr>}
-            </tbody>
-          </table></div>
-        </div>
-      ) : null}
+      {tab === 'progress' && internal ? <Progress initiativeId={ini.id} documents={ctx.data.documents}
+        people={ctx.data.people} busy={ctx.busy}
+        currentCycle={ctx.data.cycles?.find(c => c.startsOn === losAngelesMonday() && !c.isBreak)?.startsOn}
+        startRm={isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
+        onOpen={setDocumentModalId}
+        roastReason={rm => rm.status === 'draft' ? 'Submit the RM before reviewing it.' : ''}
+        onRoast={async rm => {
+          const payload: {targetId: string; result?: {documentId: string}} = {targetId: rm.id}
+          const ok = await ctx.run('startRmReview', payload)
+          if (ok && payload.result) setDocumentModalId(payload.result.documentId)
+        }} /> : null}
 
       {documentModalId?<DocumentModal key={documentModalId} ctx={ctx} documentId={documentModalId} onClose={()=>setDocumentModalId(null)}/>:null}
 
@@ -3229,7 +3207,7 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
     return (
       <div>
         <p className="muted">
-          <a href={`#/initiative/${ini.id}/documents`}><ArrowLeft size={13} /> {ini.title}</a>
+          <a href={`#/initiative/${ini.id}/progress`}><ArrowLeft size={13} /> {ini.title}</a>
         </p>
         <DraftEditor ctx={ctx} doc={doc} ini={ini} />
       </div>

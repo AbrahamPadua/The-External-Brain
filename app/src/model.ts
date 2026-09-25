@@ -14,7 +14,7 @@ export type Initiative = { id: string; title: string; abstract: string; leadId: 
  * Roast Me draft is meant for; it exists before any cycle does, and `obligationId`
  * stays empty until the draft is submitted into that week's cycle.
  */
-export type DocumentRecord = { id:string; initiativeId:string; kind:'rm'|'review'; title:string; authorId:string; authorName?:string; status:string; body:string; version:number; submittedAt?:string; targetId?:string; targetMonday?:string; obligationId?:string; draftRevision?:number; historical?:boolean; sourceKey?:string; sourceDate?:string; sourcePeriod?:string; sourcePeriodKey?:string; sourceWeek?:string; sourceOrder?:number; versions:{version:number;body:string;at:string}[] }
+export type DocumentRecord = { id:string; initiativeId:string; kind:'rm'|'review'; title:string; authorId:string; authorName?:string; status:string; body:string; version:number; submittedAt?:string; targetId?:string; targetVersion?:number; voluntaryReview?:boolean; targetMonday?:string; obligationId?:string; draftRevision?:number; historical?:boolean; sourceKey?:string; sourceDate?:string; sourcePeriod?:string; sourcePeriodKey?:string; sourceWeek?:string; sourceOrder?:number; versions:{version:number;body:string;at:string}[] }
 /** An opened working week. `startsOn` is the Monday, matching cycles.starts_on. */
 export type Cycle = { startsOn:string; isBreak:boolean; rmDue?:string; reviewDue?:string }
 /** `targetVersion` pins a review obligation to the exact Roast Me version assigned. */

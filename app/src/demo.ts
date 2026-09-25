@@ -420,6 +420,28 @@ const handlers: Record<string, Handler> = {
     audit(d, me, 'rm.retarget', `Pointed "${doc.title}" at the week of ${monday}`)
   },
 
+  startRmReview: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isApproved(me)) deny('Approved account required.')
+    const target = need(d.documents.find(doc => doc.id === p.targetId && doc.kind === 'rm' && doc.status !== 'draft'), 'Submit the RM before reviewing it.')
+    const assigned = d.obligations.find(o => o.kind === 'review' && o.assigneeId === me.id && o.targetId === target.id && ['pending', 'missed'].includes(o.status))
+    const targetVersion = target.versions.at(-1)?.version ?? target.version
+    const existing = d.documents.find(doc => doc.kind === 'review' && doc.authorId === me.id &&
+      (assigned ? doc.obligationId === assigned.id : doc.voluntaryReview && doc.targetId === target.id && doc.targetVersion === targetVersion))
+    if (existing) { p.result = {documentId: existing.id}; return }
+    if (assigned) {
+      const targetIni = need(d.initiatives.find(i => i.id === target.initiativeId), 'Initiative not found.')
+      if (targetIni.leadId === me.id || targetIni.members.includes(me.id)) deny('Assigned reviews exclude your own initiative.')
+    }
+    const doc: DocumentRecord = {id: uid(), initiativeId: assigned?.initiativeId ?? target.initiativeId,
+      kind: 'review', title: `Review of ${target.title}`, authorId: me.id, status: 'draft',
+      body: REVIEW_TEMPLATE, version: 1, versions: [], targetId: target.id,
+      targetVersion: assigned?.targetVersion ?? targetVersion, voluntaryReview: !assigned, obligationId: assigned?.id}
+    d.documents.unshift(doc)
+    p.result = {documentId: doc.id}
+    audit(d, me, 'review.start', `Started a review of "${target.title}" [${target.initiativeId}]`)
+  },
+
   createDraft: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
     if (!isApproved(me)) deny('Your account must be approved.')
@@ -527,7 +549,7 @@ const handlers: Record<string, Handler> = {
     let hpNote = ''
     if (!firstSubmission) {
       hpNote = ` (revision v${doc.version}; no additional HP)`
-    } else {
+    } else if (!doc.voluntaryReview) {
       const assigneeId = doc.kind === 'rm' ? ini.leadId : doc.authorId
       const obl = d.obligations.find((o) =>
         o.kind === doc.kind && o.assigneeId === assigneeId &&

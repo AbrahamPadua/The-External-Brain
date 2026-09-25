@@ -2496,21 +2496,28 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
               </svg>
             )
           )}
+          <div className="catalog-media-shade" aria-hidden="true" />
           <div className="catalog-badges">
             <span className="catalog-category-tag">{ini.category}</span>
             <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
           </div>
+          <h3 className="catalog-card-title catalog-default-title">{ini.title}</h3>
         </div>
         <div className="catalog-overlay">
-          <p className="catalog-overlay-abstract">{ini.abstract}</p>
-          <div className="catalog-overlay-meta">
-            <span>Lead: {leadDisplay(ctx, ini)}</span>
+          <div className="catalog-overlay-badges" aria-hidden="true">
+            <span className="catalog-category-tag">{ini.category}</span>
+            <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+          </div>
+          <div className="catalog-overlay-content">
+            <strong className="catalog-overlay-title" aria-hidden="true">{ini.title}</strong>
+            <span className="catalog-overlay-lead">Lead: {leadDisplay(ctx, ini)}</span>
+            <p className="catalog-overlay-abstract">{ini.abstract}</p>
+          </div>
+          <div className="catalog-overlay-footer">
             <span>{ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}</span>
+            <span className="catalog-overlay-link" aria-hidden="true">View initiative <span aria-hidden="true">→</span></span>
           </div>
         </div>
-      </div>
-      <div className="catalog-card-bottom">
-        <h3 className="catalog-card-title">{ini.title}</h3>
       </div>
     </a>
   )

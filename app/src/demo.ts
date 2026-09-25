@@ -287,7 +287,7 @@ const handlers: Record<string, Handler> = {
       return
     }
     if (decision === 'approved') {
-      const { category, abstract, motivation } = readProposal(req.body)
+      const { category, abstract, motivation, plan } = readProposal(req.body)
       const initiative: Initiative = {
         id: uid(),
         title: req.title,
@@ -297,6 +297,7 @@ const handlers: Record<string, Handler> = {
         status: 'active',
         category,
         motivation,
+        overviewHtml: plan,
         hp: HP_START,
         tasks: [],
       }
@@ -776,12 +777,14 @@ const handlers: Record<string, Handler> = {
     ini.coverObjectPath = undefined
   },
 
-  // Mirrors revise_rm in supabase/migrations/202609100012_rm_revision_and_media.sql:
-  // append-only, Research only, and no HP / obligation / review / role change.
+  // Mirrors revise_rm: append-only, with source RMs also revisable by their lead.
   reviseRm: ({ d, actor }, p) => {
     const me = need(actor, 'Sign in first.')
-    if (!isResearch(me)) deny('Research required.')
     const doc = need(d.documents.find((x) => x.id === p.documentId), 'Document not found.')
+    const ini = need(d.initiatives.find((i) => i.id === doc.initiativeId), 'Initiative not found.')
+    if (!isApproved(me) || (!isResearch(me) && !(doc.historical && ini.leadId === me.id))) {
+      deny('Research or the assigned lead is required to revise this source RM.')
+    }
     if (doc.kind !== 'rm') deny('Only a Roast Me can be revised here.')
     if (doc.status !== 'submitted') deny('Only submitted memos can be revised.')
     const reason = String(p.reason || '').trim()
@@ -799,6 +802,7 @@ const handlers: Record<string, Handler> = {
 
     if (doc.historical) {
       if (p.authorId) deny('Historical memos keep a null account author; use source author text.')
+      if (!isResearch(me) && p.sourceAuthor && p.sourceAuthor !== (doc.authorName || '')) deny('Source attribution cannot be changed by the lead.')
       if (p.sourceAuthor) doc.authorName = p.sourceAuthor
     } else {
       if (p.sourceAuthor) deny('Source author applies only to historical memos.')
@@ -960,16 +964,35 @@ const handlers: Record<string, Handler> = {
     }
     const target = need(d.people.find((x) => x.id === p.userId), 'Member not found.')
     if (!isApproved(target)) deny('The new lead must be an approved member.')
-    if (!ini.members.includes(target.id)) deny('The new lead must be a current member of the team.')
+    if (ini.leadId && !ini.members.includes(target.id)) deny('The new lead must be a current member of the team.')
     if (ini.leadId === target.id) deny('They are already the lead.')
     const oldLeadId = ini.leadId
     ini.leadId = target.id
+    if (!oldLeadId && !ini.members.includes(target.id)) ini.members.push(target.id)
     d.obligations.forEach((o) => {
       if (o.initiativeId === ini.id && o.assigneeId === oldLeadId && (o.status === 'pending' || o.status === 'missed')) {
         o.assigneeId = target.id
       }
     })
     audit(d, me, 'initiative.transfer', `Transferred leadership of "${ini.title}" [${ini.id}] to ${target.name}`)
+  },
+
+  updateInitiativeDetails: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    const ini = need(d.initiatives.find((i) => i.id === p.initiativeId), 'Initiative not found.')
+    if (!isApproved(me) || (ini.leadId !== me.id && !isResearch(me))) deny('Only the assigned lead or Research can edit this initiative.')
+    const title = String(p.title ?? '').trim()
+    const abstract = String(p.abstract ?? '').trim()
+    const category = String(p.category ?? '').trim()
+    const motivation = String(p.motivation ?? '').trim()
+    const overviewHtml = String(p.overviewHtml ?? '').trim()
+    if (title.length < 3 || title.length > 200) deny('Title must be 3 to 200 characters.')
+    if (abstract.length < 20 || abstract.length > 2000) deny('Abstract must be 20 to 2000 characters.')
+    if (!category || category.length > 100) deny('Category must be 1 to 100 characters.')
+    if (motivation.length > 20000) deny('Motivation must be at most 20000 characters.')
+    if (overviewHtml.length > 100000) deny('Overview must be at most 100000 characters.')
+    Object.assign(ini, { title, abstract, category, motivation, overviewHtml })
+    audit(d, me, 'initiative.details.update', `Updated details of "${title}" [${ini.id}]`)
   },
 
   leaveInitiative: ({ d, actor }, p) => {

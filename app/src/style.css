@@ -679,6 +679,7 @@ textarea:focus {
 }
 .editor.readonly .ProseMirror {
   min-height: 0;
+  overflow-wrap: anywhere;
 }
 .editor .ProseMirror h2 {
   font-size: 1.1rem;

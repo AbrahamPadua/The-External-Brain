@@ -7,14 +7,14 @@ export type TaskStatus = 'planned' | 'pending' | 'finished'
  */
 export const TASK_DETAILS_MAX = 8000
 export type InitiativeTask = { id:string; title:string; description:string; status:TaskStatus; assigneeId?:string; dueAt?:string }
-export type Initiative = { id: string; title: string; abstract: string; leadId: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
+export type Initiative = { id: string; title: string; abstract: string; leadId: string; leadName?: string; members: string[]; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; overviewHtml?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
 /**
  * A document is a Roast Me ('rm' - constructive criticism of a team's work) or a
  * peer review. `targetMonday` is the Monday of the Los Angeles week an unsubmitted
  * Roast Me draft is meant for; it exists before any cycle does, and `obligationId`
  * stays empty until the draft is submitted into that week's cycle.
  */
-export type DocumentRecord = { id:string; initiativeId:string; kind:'rm'|'review'; title:string; authorId:string; authorName?:string; status:string; body:string; version:number; submittedAt?:string; targetId?:string; targetMonday?:string; obligationId?:string; draftRevision?:number; historical?:boolean; sourceKey?:string; sourcePeriod?:string; sourcePeriodKey?:string; sourceWeek?:string; sourceOrder?:number; versions:{version:number;body:string;at:string}[] }
+export type DocumentRecord = { id:string; initiativeId:string; kind:'rm'|'review'; title:string; authorId:string; authorName?:string; status:string; body:string; version:number; submittedAt?:string; targetId?:string; targetMonday?:string; obligationId?:string; draftRevision?:number; historical?:boolean; sourceKey?:string; sourceDate?:string; sourcePeriod?:string; sourcePeriodKey?:string; sourceWeek?:string; sourceOrder?:number; versions:{version:number;body:string;at:string}[] }
 /** An opened working week. `startsOn` is the Monday, matching cycles.starts_on. */
 export type Cycle = { startsOn:string; isBreak:boolean; rmDue?:string; reviewDue?:string }
 /** `targetVersion` pins a review obligation to the exact Roast Me version assigned. */

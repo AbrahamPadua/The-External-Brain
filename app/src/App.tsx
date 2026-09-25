@@ -116,6 +116,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
 import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
 import { Editor } from './Editor'
+import { DocumentImages } from './DocumentImages'
 import decodedBrainLogo from './assets/decoded-brain-logo.svg'
 import { readDarkTheme } from './theme'
 import NeuralBackground from './NeuralBackground'
@@ -182,6 +183,11 @@ const CATEGORIES = [
   'Neuroengineering', 'Cognitive science', 'Neuroscience',
   'Computational modelling', 'Human-computer interaction', 'Other',
 ]
+
+function leadDisplay(ctx: Ctx, ini: Initiative): string {
+  const account = ini.leadId ? ctx.data.people.find((p) => p.id === ini.leadId) : null
+  return account ? nameOf(account) : ini.leadName?.trim() || 'Unassigned'
+}
 
 function parseHash(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '')
@@ -479,19 +485,20 @@ export type DocumentSort = 'newest' | 'title' | 'kind' | 'status'
 export type TaskSort = 'due' | 'title' | 'status'
 
 const documentDateKey = (doc: DocumentRecord): string =>
-  doc.targetMonday ?? doc.submittedAt ?? ''
+  doc.targetMonday ?? (doc.sourceDate && /^\d{4}-\d{2}-\d{2}/.test(doc.sourceDate)
+    ? doc.sourceDate.slice(0, 10) : doc.submittedAt ?? '')
 
-/** Imported source order is chronological and must win over the import timestamp. */
+const documentDateLabel = (doc: DocumentRecord): string => {
+  if (doc.historical) return [doc.sourceDate, doc.sourcePeriod, doc.sourceWeek].filter(Boolean).join(' · ') || 'Date unavailable'
+  return doc.submittedAt ? fmtDate(doc.submittedAt)
+    : doc.targetMonday ? `Week of ${doc.targetMonday}` : 'Date unavailable'
+}
+
 export function sortDocuments(documents: DocumentRecord[], sort: DocumentSort): DocumentRecord[] {
   return [...documents].sort((a, b) => {
     if (sort === 'title') return a.title.localeCompare(b.title)
     if (sort === 'kind') return a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title)
     if (sort === 'status') return a.status.localeCompare(b.status) || a.title.localeCompare(b.title)
-    if (a.historical !== b.historical) return a.historical ? 1 : -1
-    if (a.historical && b.historical) {
-      return (b.sourceOrder ?? Number.MIN_SAFE_INTEGER) - (a.sourceOrder ?? Number.MIN_SAFE_INTEGER)
-        || (a.kind === 'rm' ? 0 : 1) - (b.kind === 'rm' ? 0 : 1)
-    }
     return documentDateKey(b).localeCompare(documentDateKey(a)) || a.title.localeCompare(b.title)
   })
 }
@@ -921,6 +928,60 @@ function JoinForm({ ctx, initiativeId }: { ctx: Ctx; initiativeId: string }) {
     </form>
   )
 }
+function EditInitiativeForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState(ini.title)
+  const [abstract, setAbstract] = useState(ini.abstract)
+  const [category, setCategory] = useState(ini.category)
+  const [motivation, setMotivation] = useState(ini.motivation ?? '')
+  const [overviewHtml, setOverviewHtml] = useState(ini.overviewHtml ?? '')
+  if (!open) return <button className="btn ghost sm" onClick={() => setOpen(true)}>Edit initiative</button>
+  const valid = title.trim().length >= 3 && title.trim().length <= 200
+    && abstract.trim().length >= 20 && abstract.trim().length <= 2000
+    && category.trim().length > 0 && category.trim().length <= 100
+    && motivation.trim().length <= 20000 && overviewHtml.length <= 100000
+  return (
+    <form className="stack" style={{ marginTop: 16 }} onSubmit={async (e) => {
+      e.preventDefault()
+      const ok = await ctx.run('updateInitiativeDetails', {
+        initiativeId: ini.id, title: title.trim(), abstract: abstract.trim(),
+        category: category.trim(), motivation: motivation.trim(), overviewHtml,
+      }, 'Initiative updated.')
+      if (ok) setOpen(false)
+    }}>
+      <h4>Edit initiative</h4>
+      <Field label="Title"><input value={title} maxLength={200} disabled={ctx.busy} onChange={(e) => setTitle(e.target.value)} /></Field>
+      <Field label="Abstract"><textarea value={abstract} maxLength={2000} disabled={ctx.busy} onChange={(e) => setAbstract(e.target.value)} /></Field>
+      <Field label="Category"><input value={category} maxLength={100} disabled={ctx.busy} onChange={(e) => setCategory(e.target.value)} /></Field>
+      <Field label="Motivation"><textarea value={motivation} maxLength={20000} disabled={ctx.busy} onChange={(e) => setMotivation(e.target.value)} /></Field>
+      <Field label="Overview"><Editor body={overviewHtml} onChange={setOverviewHtml} readOnly={ctx.busy} /></Field>
+      <div className="btn-row">
+        <button className="btn sm" disabled={ctx.busy || !valid}>Save details</button>
+        <button type="button" className="btn ghost sm" disabled={ctx.busy} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+function AssignLeadForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
+  const approved = ctx.data.people.filter((p) => p.status === 'approved')
+  const [userId, setUserId] = useState('')
+  return (
+    <form className="row" style={{ marginTop: 12 }} onSubmit={async (e) => {
+      e.preventDefault()
+      if (!userId) return
+      const ok = await ctx.run('transferLead', { initiativeId: ini.id, userId }, 'Lead assigned.')
+      if (ok) setUserId('')
+    }}>
+      <select aria-label="Choose a lead" value={userId} disabled={ctx.busy} onChange={(e) => setUserId(e.target.value)}>
+        <option value="">Choose approved account</option>
+        {approved.map((p) => <option key={p.id} value={p.id}>{nameOf(p)}</option>)}
+      </select>
+      <button className="btn sm" disabled={ctx.busy || !userId}>Assign lead</button>
+    </form>
+  )
+}
+
 function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const [open, setOpen] = useState(false)
   const [expectedColor, setExpectedColor] = useState(ini.coverFallbackColor || '')
@@ -1040,7 +1101,7 @@ function AddTaskForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const [due, setDue] = useState('')
   const [assigneeId, setAssigneeId] = useState('')
   const [status, setStatus] = useState<'planned'|'pending'|'finished'>('planned')
-  const members = [...new Set([ini.leadId, ...ini.members])]
+  const members = [...new Set([ini.leadId, ...ini.members].filter(Boolean))]
     .map((id) => ctx.data.people.find((p) => p.id === id))
     .filter((p): p is Person => !!p && p.status === 'approved')
   const dirty=!!(title||description||due||assigneeId||status!=='planned')
@@ -1096,7 +1157,7 @@ function TaskModal({ctx,ini,taskId,onClose}:{ctx:Ctx;ini:Initiative;taskId:strin
   const dirty=touched||title!==task.title||due!==taskLocalDate(task.dueAt)
     ||assigneeId!==(task.assigneeId??'')||status!==task.status
   const requestClose=()=>{if(!ctx.busy&&(!dirty||window.confirm('Discard unsaved task changes?')))onClose()}
-  const members=[...new Set([ini.leadId,...ini.members])].map(id=>ctx.data.people.find(p=>p.id===id))
+  const members=[...new Set([ini.leadId,...ini.members].filter(Boolean))].map(id=>ctx.data.people.find(p=>p.id===id))
     .filter((p):p is Person=>!!p&&p.status==='approved')
   return <Modal titleId="task-detail-title" onRequestClose={requestClose}>
     <form className="stack" onSubmit={async e=>{e.preventDefault();if(!canManage)return
@@ -1923,17 +1984,15 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             <h3 style={{ marginBottom: 4 }}>{doc.title}</h3>
             <div className="row">
               <Pill tone="muted">{doc.kind === 'rm' ? 'Roast Me' : 'manual review'}</Pill>
-              {doc.historical ? <Pill tone="info">historical record</Pill> : null}
               <Pill tone={statusTone(doc.status)}>{doc.status}</Pill>
               <span className="muted">by {doc.authorName ?? ctx.personName(doc.authorId)}</span>
-              <span className="muted">{doc.submittedAt ? fmtDateTime(doc.submittedAt) : doc.sourceWeek ? `Week: ${doc.sourceWeek}` : doc.sourcePeriod || 'Date unavailable'}</span>
+              <span className="muted">{documentDateLabel(doc)}</span>
             </div>
             {target ? (
               <p className="muted" style={{ marginTop: 6 }}>
                 Reviewing <a href={`#/document/${target.id}`}>{target.title}</a>
               </p>
             ) : null}
-            {doc.historical ? <p className="muted" style={{ marginTop: 6 }}>Imported historical record — {doc.sourceWeek ?? doc.sourcePeriod ?? 'Date unavailable'}. {ctx.isResearch ? 'Research may revise if needed.' : 'It is preserved as submitted and cannot be revised by the author.'}</p> : null}
           </div>
           {versions.length > 1 ? (
             <Field label="Version">
@@ -1956,10 +2015,12 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             Inline comments{anchoredCount ? ` (${anchoredCount})` : ''}
           </button>
         </div>
+        <DocumentImages key={`${doc.id}:${shown?.version}:${annotated}`}>
         {annotated
           ? <AnnotatedVersion ctx={ctx} doc={doc} version={shown?.version ?? doc.version}
               body={sanitize(shown?.body ?? doc.body)} threads={threads} />
           : <Editor body={sanitize(shown?.body ?? doc.body)} readOnly />}
+        </DocumentImages>
         {canRevise ? (
           <div className="btn-row" style={{ marginTop: 12 }}>
             <button
@@ -1976,10 +2037,10 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             </button>
           </div>
         ) : null}
-        {(ctx.isResearch && doc.kind === 'rm') ? (
+        {(doc.kind === 'rm' && (ctx.isResearch || (doc.historical && !!ctx.userId && ini.leadId === ctx.userId))) ? (
           // Keyed so moving to another memo discards the open form outright
           // rather than re-pointing it at a document it was not seeded from.
-          <ResearchReviseRmForm key={doc.id} ctx={ctx} doc={doc} />
+          <ReviseRmForm key={doc.id} ctx={ctx} doc={doc} />
         ) : null}
       </div>
 
@@ -2027,7 +2088,7 @@ type ReviseDraft = {
   sourceAuthor: string
 }
 
-function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
+function ReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
   const [draft, setDraft] = useState<ReviseDraft | null>(null)
   const allVersions = versionsOf(doc)
   const lastVersion = allVersions[allVersions.length - 1] || { version: doc.version, body: doc.body }
@@ -2048,7 +2109,7 @@ function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
           reason: '',
           authorId: doc.authorId,
           sourceAuthor: doc.authorName || '',
-        })}>Research Revise RM</button>
+        })}>Revise RM</button>
       </div>
     )
   }
@@ -2060,11 +2121,10 @@ function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
   return (
     <div className="card" style={{ marginTop: 12, border: '1px solid #f87171' }}>
       <div className="between">
-        <h4 style={{ color: '#dc2626' }}>Research Revise RM</h4>
-        <Pill tone="warn">Research Only</Pill>
+        <h4 style={{ color: '#dc2626' }}>Revise RM</h4>
       </div>
       <p className="muted" style={{ marginBottom: 16 }}>
-        Directly revise this RM (including historical ones) without returning it to the author. Expected version: {expectedVersion}.
+        Add a new version of this RM. Expected version: {expectedVersion}.
       </p>
       {conflict ? (
         <p style={{ color: '#dc2626', marginBottom: 16, fontWeight: 'bold' }}>
@@ -2080,8 +2140,8 @@ function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
         </Field>
 
         {doc.historical ? (
-          <Field label="Source Author (Historical)">
-             <input type="text" value={sourceAuthor} onChange={e => patch({ sourceAuthor: e.target.value })} disabled={ctx.busy || conflict} />
+          <Field label="Source author">
+             <input type="text" value={sourceAuthor} onChange={e => patch({ sourceAuthor: e.target.value })} disabled={ctx.busy || conflict || !ctx.isResearch} />
           </Field>
         ) : (
           <Field label="Author">
@@ -2102,7 +2162,7 @@ function ResearchReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
         </Field>
 
         <Field label="Revision Reason (Required)">
-          <input type="text" value={reason} onChange={e => patch({ reason: e.target.value })} disabled={ctx.busy || conflict} placeholder="Why is Research revising this RM?" />
+          <input type="text" value={reason} onChange={e => patch({ reason: e.target.value })} disabled={ctx.busy || conflict} placeholder="Why is this RM being revised?" />
         </Field>
 
         <div className="btn-row" style={{ marginTop: 16 }}>
@@ -2398,7 +2458,7 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
       </div>
       <p className="clamp3 muted">{ini.abstract}</p>
       <div className="row" style={{ marginTop: 10 }}>
-        <span className="muted">Lead: {ctx.personName(ini.leadId)}</span>
+        <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
         {ctx.approved ? <HpBar hp={ini.hp} /> : null}
       </div>
     </a>
@@ -2444,7 +2504,7 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
         <div className="catalog-overlay">
           <p className="catalog-overlay-abstract">{ini.abstract}</p>
           <div className="catalog-overlay-meta">
-            <span>Lead: {ctx.personName(ini.leadId)}</span>
+            <span>Lead: {leadDisplay(ctx, ini)}</span>
             <span>{ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}</span>
           </div>
         </div>
@@ -2458,7 +2518,7 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
 
 function PageCatalog({ ctx }: { ctx: Ctx }) {
   const [q, setQ] = useState('')
-  const [activeOnly, setActiveOnly] = useState(true)
+  const [status, setStatus] = useState('active')
   const [category, setCategory] = useState('All')
   const [sort, setSort] = useState('asc')
 
@@ -2478,17 +2538,17 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
     const query = q.trim().toLowerCase()
     return allowed
       .filter((i) => {
-        if (ctx.approved && activeOnly && i.status !== 'active') return false
+        if (ctx.approved && status !== 'all' && i.status !== status) return false
         if (category !== 'All' && i.category !== category) return false
         if (!query) return true
-        const lead = ctx.personName(i.leadId) || ''
+        const lead = leadDisplay(ctx, i)
         return `${i.title} ${i.category} ${i.abstract} ${lead}`.toLowerCase().includes(query)
       })
       .sort((a, b) => {
         const cmp = a.title.localeCompare(b.title)
         return sort === 'desc' ? -cmp : cmp
       })
-  }, [allowed, ctx, q, activeOnly, category, sort])
+  }, [allowed, ctx, q, status, category, sort])
 
   return (
     <div className="catalog-page">
@@ -2511,12 +2571,10 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
           <div className="catalog-toolbar-actions">
             {ctx.approved ? (
               <label className="catalog-filter-label">
-                <input
-                  type="checkbox"
-                  checked={activeOnly}
-                  onChange={(e) => setActiveOnly(e.target.checked)}
-                />
-                Active only
+                <select className="catalog-select" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
+                  <option value="all">All statuses</option>
+                  {['active', 'on_hold', 'completed', 'stopped', 'dead'].map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
               </label>
             ) : null}
             <label className="catalog-filter-label">
@@ -2878,9 +2936,6 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
   const isMember = !!ctx.userId && (ini.members.includes(ctx.userId) || ini.leadId === ctx.userId)
   const canManage = ini.leadId === ctx.userId || ctx.isAdmin
   const initiativeDocs = ctx.data.documents.filter((d) => d.initiativeId === ini.id)
-  // Canonical historical records are imported as one RM/review pair per source
-  // week. Keep live documents in their existing order, while presenting those
-  // historical weeks chronologically with the RM before its linked review.
   const docs = sortDocuments(initiativeDocs,documentSort)
   const tasks = sortTasks(ini.tasks,taskSort)
   const joinReqs = ctx.data.requests.filter((r) =>
@@ -2913,7 +2968,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         </div>
         <div className="row">
           <Pill>{ini.category}</Pill>
-          <span className="muted">Lead: {ctx.personName(ini.leadId)}</span>
+          <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
           {internal ? <HpBar hp={ini.hp} /> : null}
         </div>
       </div>
@@ -2937,10 +2992,18 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
             {(ini.leadId === ctx.userId || ctx.isAdmin) ? <CoverForm ctx={ctx} ini={ini} /> : null}
           </div>
           <p style={{ marginTop: 8 }}>{ini.abstract}</p>
+          {internal && (ini.leadId === ctx.userId || ctx.isResearch) ? <EditInitiativeForm key={ini.id} ctx={ctx} ini={ini} /> : null}
+          {ini.overviewHtml ? (
+            <div style={{ marginTop: 24 }}>
+              <h3>Overview</h3>
+              <Editor body={sanitize(ini.overviewHtml)} readOnly />
+            </div>
+          ) : null}
           {ini.motivation ? (
             <div style={{ marginTop: 24 }}>
               <h3>Motivation</h3>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{ini.motivation}</p>
+              {ini.motivation.split(/\n\s*\n/).filter(Boolean).map((paragraph, index) =>
+                <p key={index} style={{ whiteSpace: 'pre-wrap', marginTop: 12 }}>{paragraph}</p>)}
             </div>
           ) : null}
           <div style={{ marginTop: 16 }}>
@@ -2998,6 +3061,8 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div>
           <div className="card">
             <h3>Team</h3>
+            <p className="muted" style={{ marginTop: 8 }}>Lead: {leadDisplay(ctx, ini)}</p>
+            {internal && ctx.isResearch && !ini.leadId ? <AssignLeadForm ctx={ctx} ini={ini} /> : null}
             <div className="stack" style={{ marginTop: 10 }}>
               {ini.members.map((mid) => {
                 const p = ctx.data.people.find((x) => x.id === mid)
@@ -3091,12 +3156,10 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                 <tr key={d.id}>
                   <td><a href={`#/document/${d.id}`} onClick={(e)=>{
                     if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0){e.preventDefault();setDocumentModalId(d.id)}
-                  }}>{d.title}</a>{d.historical && (d.sourceWeek || d.sourcePeriod) ? <div className="field-hint">{d.sourceWeek ? `Week: ${d.sourceWeek}` : d.sourcePeriod}</div> : null}</td>
-                  <td>{d.kind === 'rm' ? 'Roast Me' : 'review'}{d.historical ? ' (historical)' : ''}{!d.historical && d.kind === 'rm' && d.targetMonday ? <div className="field-hint">Week of {d.targetMonday}</div> : null}</td>
+                  }}>{d.title}</a></td>
+                  <td>{d.kind === 'rm' ? 'Roast Me' : 'review'}{d.kind === 'rm' && d.targetMonday ? <div className="field-hint">Week of {d.targetMonday}</div> : null}</td>
                   <td><Pill tone={statusTone(d.status)}>{d.status}</Pill></td>
-                  <td>{d.historical
-                    ? [d.sourcePeriod,d.sourceWeek].filter(Boolean).join(' · ') || 'Historical period unavailable'
-                    : d.submittedAt ? fmtDate(d.submittedAt) : d.targetMonday ? `Week of ${d.targetMonday}` : 'Date unavailable'}</td>
+                  <td>{documentDateLabel(d)}</td>
                 </tr>
               )) : <tr><td colSpan={4} className="muted">No documents yet.</td></tr>}
             </tbody>
@@ -3553,7 +3616,7 @@ function PageHealth({ ctx }: { ctx: Ctx }) {
             return (
               <tr key={i.id}>
                 <td><a href={`#/initiative/${i.id}/overview`}>{i.title}</a></td>
-                <td>{ctx.personName(i.leadId)}</td>
+                <td>{leadDisplay(ctx, i)}</td>
                 <td><Pill tone={statusTone(i.status)}>{i.status}</Pill></td>
                 <td>
                   <HpBar hp={i.hp} />

@@ -1,4 +1,5 @@
 import { supabase } from './client'
+import { cleanImportedText, importedDocumentTitle } from './imported-title'
 import type { Data, DocumentRecord, ProfileDetails } from './model'
 import { imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
@@ -58,20 +59,26 @@ export const objectPathsIn = (htmlStr: string): string[] => {
 }
 /**
  * One batched signing round trip per bucket per load, instead of one per image
- * per version. A path the caller may not read simply yields no URL: the image
- * renders blank rather than leaking a link, and the rest of the page still
- * resolves.
+ * per version. A path the caller may not read yields no URL. The viewer offers
+ * a retry without exposing a link or dropping the original reference.
  */
 async function signPaths(bucket: string, paths: string[]): Promise<Map<string, string>> {
   const urls = new Map<string, string>()
   const unique = [...new Set(paths)].filter(Boolean)
   if (!unique.length) return urls
-  const { data } = await supabase!.storage.from(bucket).createSignedUrls(unique, SIGNED_URL_TTL)
+  const { data, error } = await supabase!.storage.from(bucket).createSignedUrls(unique, SIGNED_URL_TTL)
+  if (error) console.warn('Image URLs could not be refreshed; retry is available in the document viewer.')
   for (const entry of data ?? []) {
     const path = (entry as { path?: string | null }).path
     if (path && entry.signedUrl && !entry.error) urls.set(path, entry.signedUrl)
   }
   return urls
+}
+export async function retryDocumentImage(path: string): Promise<string> {
+  const urls = await signPaths(IMAGES_BUCKET, [path])
+  const url = urls.get(path)
+  if (!url) throw new Error('Image unavailable')
+  return url
 }
 /** Attach freshly signed URLs to one stored body for this render only. */
 export const applyImageUrls = (htmlStr: string, urls: Map<string, string>) => {
@@ -95,7 +102,7 @@ export const stripSignedUrls = (htmlStr: string) => {
 }
 export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
- if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state}
+ if(!userId){state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state}
  const profiles=await rows('profiles')
  const mine=profiles.find(p=>p.id===userId)
  // A profile with no name yet: finish the signup once, then read the row back.
@@ -104,7 +111,7 @@ export async function loadLive(userId:string|null):Promise<Data>{
  // placeholder for a profile that has not been filled in yet.
  state.people=profiles.map(p=>({id:p.id,name:p.display_name??'',email:'',status:p.account_status,roles:[],major:p.major??'',interests:p.interests??''}))
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
- state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',members:[],tasks:[],hp:100}));return state
+ state.initiatives=(await rows('initiative_catalog')).map(i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:'Research',leadId:'',leadName:i.lead_name??'',members:[],tasks:[],hp:100}));return state
  }
  const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles'].map(rows))
  // Which weeks Research has actually opened. A Roast Me draft can name a week
@@ -125,9 +132,9 @@ export async function loadLive(userId:string|null):Promise<Data>{
   ...tasks.flatMap(t=>objectPathsIn(String(t.details??''))),
  ])
  const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id,members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:i.summary,status:i.status,category:i.content?.category||'Research',leadId:i.lead_id??'',leadName:i.lead_name??'',members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:i.content?.motivation,overviewHtml:i.content?.html??'',coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
  state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
- state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:title(content,d.kind==='rm'?'Roast Me':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourcePeriod:typeof content?.source_period==='string'?content.source_period:undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?content.source_week:undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
+ state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:historical?importedDocumentTitle(title(content,d.kind==='rm'?'Roast Me':'Peer review'),d.kind,d.kind==='review'?shaped.filter(x=>x.d.id===d.reviewed_document_id).map(x=>importedDocumentTitle(title(x.content,'Roast Me'),'rm'))[0]:undefined):title(content,d.kind==='rm'?'Roast Me':'Peer review'),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:historical?undefined:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourceDate:typeof content?.source_date==='string'?content.source_date:typeof content?.source_date_text==='string'?content.source_date_text:undefined,sourcePeriod:typeof content?.source_period==='string'?(historical?cleanImportedText(content.source_period):content.source_period):undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?(historical?cleanImportedText(content.source_week):content.source_week):undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
  state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,anchorStart:t.anchor_start??undefined,anchorEnd:t.anchor_end??undefined,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
  state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
  state.audit=audit.map(a=>({id:a.id,at:a.created_at,actor:a.actor_id,action:a.action,detail:JSON.stringify(a.detail)}));
@@ -233,6 +240,7 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  case 'adjustHp':return rpc('adjust_hp',{p_initiative:p.initiativeId??id,p_points:Number(p.points??p.delta),p_reason:p.reason})
  case 'setRole':return rpc('change_role',{p_user:p.userId??id,p_role:p.role,p_enabled:p.enabled??p.grant??true})
  case 'transferLead':return rpc('transfer_lead',{p_initiative:p.initiativeId,p_user:p.userId})
+ case 'updateInitiativeDetails':return rpc('update_initiative_details',{p_initiative:p.initiativeId,p_title:p.title,p_summary:p.abstract,p_category:p.category,p_motivation:p.motivation,p_html:stripSignedUrls(p.overviewHtml??'')})
  case 'leaveInitiative':return rpc('leave_initiative',{p_initiative:p.initiativeId,p_user:p.userId??_userId})
  case 'setPolicy':return rpc('set_policy',{p_penalty:p.penalty,p_reward:p.reward})
  case 'openCycle':return rpc('open_cycle',{p_monday:p.monday,p_break:p.isBreak??false})

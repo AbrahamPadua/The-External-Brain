@@ -5,14 +5,15 @@ import type {DocumentRecord,InitiativeTask} from './model'
 const doc=(p:Partial<DocumentRecord>):DocumentRecord=>({id:'x',initiativeId:'i',kind:'rm',title:'RM',authorId:'a',status:'submitted',body:'',version:1,versions:[],...p})
 
 describe('backlog list ordering',()=>{
-  it('puts live documents newest first and historical source periods newest first',()=>{
+  it('sorts documents together by known dates without a separate source section',()=>{
     const rows=[
       doc({id:'old-live',submittedAt:'2026-01-01T00:00:00Z'}),
-      doc({id:'historical-1',historical:true,sourceOrder:1,submittedAt:'2026-09-11T00:00:00Z'}),
+      doc({id:'source-old',historical:true,sourceDate:'2025-05-01',sourceOrder:1}),
       doc({id:'new-live',submittedAt:'2026-08-01T00:00:00Z'}),
-      doc({id:'historical-2',historical:true,sourceOrder:2,submittedAt:'2026-09-11T00:00:00Z'}),
+      doc({id:'source-new',historical:true,sourceDate:'2026-06-01',sourceOrder:2}),
+      doc({id:'undated',historical:true,sourceOrder:3}),
     ]
-    expect(sortDocuments(rows,'newest').map(d=>d.id)).toEqual(['new-live','old-live','historical-2','historical-1'])
+    expect(sortDocuments(rows,'newest').map(d=>d.id)).toEqual(['new-live','source-new','old-live','source-old','undated'])
   })
 
   it('sorts undated tasks after dated tasks',()=>{

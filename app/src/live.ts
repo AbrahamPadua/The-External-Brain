@@ -1,6 +1,7 @@
 import { initiativeAbstract } from './initiative-details'
 import { supabase } from './client'
 import { cleanImportedText, importedDocumentTitle } from './imported-title'
+import { presentHistoricalBody } from './historical-body'
 import type { Data, DocumentRecord, ProfileDetails } from './model'
 import { imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
@@ -127,7 +128,12 @@ export async function loadLive(userId:string|null):Promise<Data>{
  // One signing round trip for the whole page: every object path referenced by a
  // document body, any stored version, or a task description. Old versions keep
  // their images because their own paths are signed here too.
- const shaped=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const draft=drafts.find(v=>v.document_id===d.id);const content=draft?.content??vs.at(-1)?.content??{};return {d,vs,draft,content,bodyHtml:html(content),versionHtml:vs.map(v=>html(v.content))}})
+ //
+ // A historical import's stored body is presented (never rewritten) as clean
+ // prose here, once, so every reader of bodyHtml/versionHtml - the review
+ // screen, the full document page, and any preview - sees the same formatted
+ // text without each call site redoing the conversion.
+ const shaped=docs.map(d=>{const vs=versions.filter(v=>v.document_id===d.id).sort((a,b)=>a.version_number-b.version_number);const draft=drafts.find(v=>v.document_id===d.id);const content=draft?.content??vs.at(-1)?.content??{};const historical=d.is_historical_import===true||content?.historical===true;const present=(h:string)=>historical?presentHistoricalBody(h):h;return {d,vs,draft,content,bodyHtml:present(html(content)),versionHtml:vs.map(v=>present(html(v.content)))}})
  const imageUrls=await signPaths(IMAGES_BUCKET,[
   ...shaped.flatMap(s=>[...objectPathsIn(s.bodyHtml),...s.versionHtml.flatMap(objectPathsIn)]),
   ...tasks.flatMap(t=>objectPathsIn(String(t.details??''))),

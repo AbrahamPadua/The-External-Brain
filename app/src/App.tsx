@@ -114,7 +114,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
-import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Thread, Notification } from './model'
+import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Request, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { DocumentImages } from './DocumentImages'
 import { Progress } from './Progress'
@@ -1264,7 +1264,7 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
       { id: existing?.id, title: title.trim(), category, abstract: abstract.trim(), plan: plan.trim(), motivation: motivation.trim(), status },
       status === 'draft' ? 'Draft saved.' : 'Proposal submitted for Research review.',
     )
-    if (ok) go('#/proposals')
+    if (ok) go('#/')
   }
 
   const wordCount = motivation.trim() === '' ? 0 : motivation.trim().split(/\s+/).length
@@ -1312,7 +1312,7 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
         >
           Save draft
         </button>
-        <button type="button" className="btn ghost" disabled={ctx.busy} onClick={() => go('#/proposals')}>
+        <button type="button" className="btn ghost" disabled={ctx.busy} onClick={() => go('#/')}>
           Cancel
         </button>
       </div>
@@ -2902,6 +2902,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
     return !!doc && myInitiatives.some((i) => i.id === doc.initiativeId)
   })
 
+  const myProposals = data.requests.filter((r) => r.kind === 'proposal' && r.userId === userId)
+  const proposalsToRevise = myProposals.filter((r) => r.status === 'changes_requested')
   // Initiatives with join requests this account can decide appear on Home too,
   // since the requests are decided on the initiative card.
   const homeInitiatives = [
@@ -2911,8 +2913,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   ]
 
   const decisions: ReactNode[] = []
-  if (ctx.isResearch && pendingProposals.length) {
-    decisions.push(<li key="p"><a href="#/proposals">{pendingProposals.length} proposal(s) awaiting review</a></li>)
+  for (const r of proposalsToRevise) {
+    decisions.push(<li key={`rev-${r.id}`}><a href={`#/new-proposal/${r.id}`}>Research asked for changes to &ldquo;{r.title}&rdquo;</a></li>)
   }
   if (pendingJoins.length) {
     decisions.push(<li key="j">{pendingJoins.length} join request(s) to decide on the initiative cards below</li>)
@@ -2923,6 +2925,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   if (ctx.isResearch && unreviewedRm.length) {
     decisions.push(<li key="r"><a href="#/assignments">{unreviewedRm.length} memo(s) need a reviewer</a></li>)
   }
+  const proposalQueue = ctx.isResearch ? pendingProposals : []
+  const nothingPending = !myRm.length && !myReviews.length && !decisions.length && !proposalQueue.length
 
   return (
     <div className="dashboard">
@@ -2979,6 +2983,27 @@ function PageHome({ ctx }: { ctx: Ctx }) {
             <span className="dashboard-badge dashboard-badge-coral">{decisions.length}</span>
           </header>
           <ul className="dashboard-decision-list">{decisions}</ul>
+        </section>
+      ) : null}
+
+      {proposalQueue.length ? (
+        <section className="dashboard-section dashboard-proposal-queue" aria-labelledby="proposal-queue-heading">
+          <header className="dashboard-section-header">
+            <h2 id="proposal-queue-heading"><Sparkles size={18} /> Proposals awaiting review</h2>
+            <span className="dashboard-badge dashboard-badge-coral">{proposalQueue.length}</span>
+          </header>
+          <ProposalQueue ctx={ctx} queue={proposalQueue} />
+        </section>
+      ) : null}
+
+      {nothingPending ? (
+        <section className="dashboard-section dashboard-proposals" aria-labelledby="proposals-heading">
+          <header className="dashboard-section-header">
+            <h2 id="proposals-heading"><Sparkles size={18} /> Proposals</h2>
+            <a className="btn sm" href="#/new-proposal"><Plus size={15} /> New proposal</a>
+          </header>
+          <p className="muted">Nothing is waiting on you. Have an idea for a new initiative?</p>
+          <MyProposals mine={myProposals} />
         </section>
       ) : null}
 
@@ -3308,84 +3333,77 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
   return <SubmittedDoc key={doc.id} ctx={ctx} doc={doc} ini={ini} />
 }
 
-function PageProposals({ ctx }: { ctx: Ctx }) {
-  const mine = ctx.data.requests.filter((r) => r.kind === 'proposal' && r.userId === ctx.userId)
-  const queue = ctx.data.requests.filter((r) => r.kind === 'proposal' && r.status === 'submitted')
+/** Research's review queue, shown on Home whenever proposals are waiting. */
+function ProposalQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
   return (
-    <div>
-      <div className="between section">
-        <h1>Proposals</h1>
-        <a className="btn" href="#/new-proposal"><Plus size={16} /> New proposal</a>
-      </div>
-
-      {ctx.isResearch ? (
-        <div className="section">
-          <h2>Awaiting Research review</h2>
-          {queue.length ? queue.map((r) => {
-            const { category, abstract, plan, motivation } = readProposal(r.body)
-            return (
-              <div className="card" key={r.id}>
-                <div className="between">
-                  <div>
-                    <h3 style={{ marginBottom: 4 }}>{r.title}</h3>
-                    <div className="row">
-                      <Pill>{category}</Pill>
-                      <span className="muted">by {ctx.personName(r.userId)}</span>
-                    </div>
-                  </div>
-                </div>
-                <p style={{ marginTop: 8 }}>{abstract}</p>
-                {plan ? (
-                  <p style={{ marginTop: 8 }}><strong>Execution plan:</strong> {plan}</p>
-                ) : null}
-                {motivation ? (
-                  <p style={{ marginTop: 8 }}><strong>Motivation:</strong> {motivation}</p>
-                ) : null}
-                <DecisionForm
-                  ctx={ctx}
-                  approveLabel="Approve & create initiative"
-                  onApprove={() => ctx.run('decideProposal',
-                    { requestId: r.id, decision: 'approved' }, 'Initiative created.')}
-                  onReject={(fb) => ctx.run('decideProposal',
-                    { requestId: r.id, decision: 'rejected', feedback: fb }, 'Proposal declined.')}
-                  onChanges={(fb) => ctx.run('decideProposal',
-                    { requestId: r.id, decision: 'changes_requested', feedback: fb }, 'Change request sent.')}
-                />
-              </div>
-            )
-          }) : <Empty>Nothing waiting.</Empty>}
-        </div>
-      ) : null}
-
-      <div className="section">
-        <h2>Your proposals</h2>
-        {mine.length ? mine.map((r) => {
-          const { category, abstract, plan, motivation } = readProposal(r.body)
-          const editable = r.status === 'draft' || r.status === 'changes_requested'
-          return (
-            <div className="card" key={r.id}>
-              <div className="between">
-                <div>
-                  <strong>{r.title}</strong>{' '}
+    <div className="dashboard-list">
+      {queue.map((r) => {
+        const { category, abstract, plan, motivation } = readProposal(r.body)
+        return (
+          <div className="card" key={r.id}>
+            <div className="between">
+              <div>
+                <h3 style={{ marginBottom: 4 }}>{r.title}</h3>
+                <div className="row">
                   <Pill>{category}</Pill>
+                  <span className="muted">by {ctx.personName(r.userId)}</span>
                 </div>
-                <Pill tone={statusTone(r.status)}>{r.status}</Pill>
               </div>
-              <p className="muted" style={{ marginTop: 6 }}>{abstract}</p>
-              {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
-              {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
-              {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
-              {editable ? (
-                <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
-                  {r.status === 'draft' ? 'Continue draft' : 'Revise & resubmit'}
-                </a>
-              ) : null}
             </div>
-          )
-        }) : <Empty>You have not proposed anything yet.</Empty>}
-      </div>
+            <p style={{ marginTop: 8 }}>{abstract}</p>
+            {plan ? (
+              <p style={{ marginTop: 8 }}><strong>Execution plan:</strong> {plan}</p>
+            ) : null}
+            {motivation ? (
+              <p style={{ marginTop: 8 }}><strong>Motivation:</strong> {motivation}</p>
+            ) : null}
+            <DecisionForm
+              ctx={ctx}
+              approveLabel="Approve & create initiative"
+              onApprove={() => ctx.run('decideProposal',
+                { requestId: r.id, decision: 'approved' }, 'Initiative created.')}
+              onReject={(fb) => ctx.run('decideProposal',
+                { requestId: r.id, decision: 'rejected', feedback: fb }, 'Proposal declined.')}
+              onChanges={(fb) => ctx.run('decideProposal',
+                { requestId: r.id, decision: 'changes_requested', feedback: fb }, 'Change request sent.')}
+            />
+          </div>
+        )
+      })}
     </div>
   )
+}
+
+/** The member's own proposals, shown on Home only when nothing else is pending. */
+function MyProposals({ mine }: { mine: Request[] }) {
+  return mine.length ? (
+    <div className="dashboard-list">
+      {mine.map((r) => {
+        const { category, abstract, plan, motivation } = readProposal(r.body)
+        const editable = r.status === 'draft' || r.status === 'changes_requested'
+        return (
+          <div className="card" key={r.id}>
+            <div className="between">
+              <div>
+                <strong>{r.title}</strong>{' '}
+                <Pill>{category}</Pill>
+              </div>
+              <Pill tone={statusTone(r.status)}>{r.status}</Pill>
+            </div>
+            <p className="muted" style={{ marginTop: 6 }}>{abstract}</p>
+            {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
+            {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
+            {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
+            {editable ? (
+              <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
+                {r.status === 'draft' ? 'Continue draft' : 'Revise & resubmit'}
+              </a>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  ) : <Empty>You have not proposed anything yet.</Empty>
 }
 
 
@@ -3815,7 +3833,7 @@ function PageNotifications({ ctx }: { ctx: Ctx }) {
 // --- root -----------------------------------------------------------
 
 const GUARDED = new Set([
-  'proposals', 'new-proposal', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
+  'new-proposal', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
 export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onVerifyLink, onSignOut, authEmail }: AppProps) {
@@ -3936,7 +3954,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     { to: '#/catalog', label: 'Catalog', icon: FlaskConical, show: true },
     { to: '#/signin', label: 'Sign in', icon: LogIn, show: !me && mode === 'live' },
     { to: '#/notifications', label: unreadCount ? `Inbox (${unreadCount})` : 'Inbox', icon: Bell, show: approved },
-    { to: '#/proposals', label: 'Proposals', icon: Sparkles, show: approved },
     { to: '#/assignments', label: 'Review assignments', icon: ClipboardList, show: isResearch },
     { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: navAccess.accounts },
     { to: '#/health', label: 'Health', icon: HeartPulse, show: navAccess.health },
@@ -3966,7 +3983,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
       case 'initiative': return <PageInitiative ctx={ctx} />
       case 'document': return <PageDocument ctx={ctx} />
       case 'new-proposal': return <NewProposalForm ctx={ctx} />
-      case 'proposals': return <PageProposals ctx={ctx} />
       case 'accounts': return <PageAccounts ctx={ctx} />
       case 'assignments': return <PageAssignments ctx={ctx} />
       case 'health': return <PageHealth ctx={ctx} />

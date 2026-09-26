@@ -692,3 +692,4 @@ a.card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .initiative-card-joins { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .initiative-card-joins .between strong { display: inline-flex; align-items: center; gap: 6px; }
 .initiative-card-join p { margin: 2px 0 8px; }
+.dashboard-proposals .dashboard-section-header .btn { margin-left: auto; }

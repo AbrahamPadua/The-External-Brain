@@ -43,9 +43,27 @@ it('hides Health from members and leads, and shows it to Research and Operations
   expect(navLabels()).toContain('Health')
 })
 
+it('drops the Proposals and Join requests pages from navigation', async () => {
+  await show(structuredClone(seed), 'maya')
+  expect(navLabels()).not.toContain('Proposals')
+  expect(navLabels()).not.toContain('Join requests')
+})
+
 it('puts join requests on the initiative card for its lead', async () => {
   await show(withJoin(), 'alex')
   const card = [...host.querySelectorAll('.initiative-card')].find(c => c.textContent?.includes('Memory in Motion'))
   expect(card?.querySelector('.initiative-card-joins')?.textContent).toContain('Sam Patel')
   expect(card?.querySelector('.initiative-card-joins button')?.textContent).toContain('Add to team')
+})
+
+it('shows proposals on Home only when nothing is pending', async () => {
+  await show(structuredClone(seed), 'alex')
+  expect(host.querySelector('.dashboard-proposals')).toBeNull()
+  await act(async () => root!.unmount()); root = undefined; host.remove()
+
+  const clear = structuredClone(seed)
+  clear.obligations = clear.obligations.filter(o => o.assigneeId !== 'alex')
+  clear.requests = clear.requests.filter(r => !(r.kind === 'join' && r.status === 'pending'))
+  await show(clear, 'alex')
+  expect(host.querySelector('.dashboard-proposals a[href="#/new-proposal"]')).not.toBeNull()
 })

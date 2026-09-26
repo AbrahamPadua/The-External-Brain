@@ -6,6 +6,7 @@ app/.env.local
 *.log
 import-private/
 *.docx
+UI/
 
 ucsd-bylaws-ultra-2026.docx
 supabase/deploy-bundle.txt

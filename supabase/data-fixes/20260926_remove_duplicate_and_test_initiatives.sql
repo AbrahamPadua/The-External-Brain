@@ -1,11 +1,11 @@
--- One-off data fix: remove three initiatives and everything that belongs to them.
+-- One-off data fix: remove two initiatives and everything that belongs to them.
 --   * EEG Controlled Humanoid Robot   (stopped duplicate of "EEG-Controlled Humanoid Robot")
---   * EEG Fundamentals: A Workshop Series (stopped)
 --   * A new better Proposal           (test initiative, and the proposal that created it)
+-- EEG Fundamentals: A Workshop Series is kept.
 --
 -- Run once in the Supabase SQL Editor. Everything runs in a single transaction and
 -- aborts without changing anything if:
---   * the titles do not match exactly these three initiatives, or
+--   * the titles do not match exactly these two initiatives, or
 --   * another initiative still points at one of their documents (a review of their
 --     Roast Me, or a review obligation targeting it).
 --
@@ -22,7 +22,6 @@ create temp table doomed_initiatives as
 select id, title, status, proposal_id
 from public.initiatives
 where (lower(btrim(title)) = lower('EEG Controlled Humanoid Robot') and status = 'stopped')
-   or (lower(btrim(title)) = lower('EEG Fundamentals: A Workshop Series') and status = 'stopped')
    or (lower(btrim(title)) = lower('A new better Proposal'));
 
 create temp table doomed_obligations as
@@ -41,8 +40,8 @@ declare
   outside_hp int;
 begin
   select count(*) into matched from doomed_initiatives;
-  if matched <> 3 then
-    raise exception 'Expected exactly 3 initiatives to remove, matched %: %', matched,
+  if matched <> 2 then
+    raise exception 'Expected exactly 2 initiatives to remove, matched %: %', matched,
       (select coalesce(string_agg(title || ' (' || status || ')', ', '), 'none') from doomed_initiatives);
   end if;
 

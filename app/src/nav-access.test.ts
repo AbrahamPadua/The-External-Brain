@@ -4,12 +4,12 @@ import { navigationAccess } from './App'
 describe('navigation access', () => {
   it('keeps organizational pages from ordinary members', () => {
     expect(navigationAccess({ approved: true, isResearch: false, isOperations: false, isInitiativeLead: false }))
-      .toEqual({ accounts: false, audit: false, health: false, joinRequests: false })
+      .toEqual({ accounts: false, audit: false, health: false })
   })
 
-  it('lets initiative leads manage only join requests', () => {
+  it('does not give initiative leads organizational pages, including Health', () => {
     expect(navigationAccess({ approved: true, isResearch: false, isOperations: false, isInitiativeLead: true }))
-      .toEqual({ accounts: false, audit: false, health: false, joinRequests: true })
+      .toEqual({ accounts: false, audit: false, health: false })
   })
 
   it.each([
@@ -18,11 +18,11 @@ describe('navigation access', () => {
     { isResearch: true, isOperations: true },
   ])('allows organizational roles: %o', ({ isResearch, isOperations }) => {
     expect(navigationAccess({ approved: true, isResearch, isOperations, isInitiativeLead: false }))
-      .toEqual({ accounts: true, audit: true, health: true, joinRequests: true })
+      .toEqual({ accounts: true, audit: true, health: true })
   })
 
   it('denies unapproved accounts even if stale flags are present', () => {
     expect(navigationAccess({ approved: false, isResearch: true, isOperations: true, isInitiativeLead: true }))
-      .toEqual({ accounts: false, audit: false, health: false, joinRequests: false })
+      .toEqual({ accounts: false, audit: false, health: false })
   })
 })

@@ -374,7 +374,6 @@ export function navigationAccess(opts: {
     accounts: organizational,
     audit: organizational,
     health: organizational,
-    joinRequests: opts.approved && (organizational || opts.isInitiativeLead),
   }
 }
 
@@ -2528,8 +2527,15 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
     ? `url(${ini.coverUrl}) ${ini.coverPositionX??50}% ${ini.coverPositionY??50}%/cover no-repeat`
     : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
 
+  // Join requests live on the card itself, for the lead and for Research/Operations.
+  const canDecide = ctx.approved && (ini.leadId === ctx.userId || ctx.isAdmin)
+  const joinReqs = canDecide
+    ? ctx.data.requests.filter((r) => r.kind === 'join' && r.status === 'pending' && r.initiativeId === ini.id)
+    : []
+
   return (
-    <a className="card" href={`#/initiative/${ini.id}/overview`} style={{ display: 'block', overflow: 'hidden' }}>
+    <div className="card initiative-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <a className="initiative-card-link" href={`#/initiative/${ini.id}/overview`}>
       <div style={{
         margin: '-20px -20px 20px -20px',
         height: '140px',
@@ -2549,6 +2555,29 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
         {ctx.canSeeHealth ? <HpBar hp={ini.hp} /> : null}
       </div>
     </a>
+    {joinReqs.length ? (
+      <div className="initiative-card-joins">
+        <div className="between">
+          <strong><UserPlus size={15} /> Join requests</strong>
+          <span className="dashboard-badge dashboard-badge-coral">{joinReqs.length}</span>
+        </div>
+        {joinReqs.map((r) => (
+          <div className="initiative-card-join" key={r.id}>
+            <strong>{ctx.personName(r.userId)}</strong>
+            {r.body ? <p className="muted">{r.body}</p> : null}
+            <DecisionForm
+              ctx={ctx}
+              approveLabel="Add to team"
+              onApprove={() => ctx.run('decideJoin',
+                { requestId: r.id, decision: 'approved' }, 'Member added.')}
+              onReject={(fb) => ctx.run('decideJoin',
+                { requestId: r.id, decision: 'rejected', feedback: fb }, 'Request declined.')}
+            />
+          </div>
+        ))}
+      </div>
+    ) : null}
+    </div>
   )
 }
 
@@ -2873,12 +2902,20 @@ function PageHome({ ctx }: { ctx: Ctx }) {
     return !!doc && myInitiatives.some((i) => i.id === doc.initiativeId)
   })
 
+  // Initiatives with join requests this account can decide appear on Home too,
+  // since the requests are decided on the initiative card.
+  const homeInitiatives = [
+    ...myInitiatives,
+    ...data.initiatives.filter((i) =>
+      !myInitiatives.some((m) => m.id === i.id) && pendingJoins.some((r) => r.initiativeId === i.id)),
+  ]
+
   const decisions: ReactNode[] = []
   if (ctx.isResearch && pendingProposals.length) {
     decisions.push(<li key="p"><a href="#/proposals">{pendingProposals.length} proposal(s) awaiting review</a></li>)
   }
   if (pendingJoins.length) {
-    decisions.push(<li key="j"><a href="#/requests">{pendingJoins.length} join request(s) to decide</a></li>)
+    decisions.push(<li key="j">{pendingJoins.length} join request(s) to decide on the initiative cards below</li>)
   }
   if (ctx.isAdmin && pendingAccounts.length) {
     decisions.push(<li key="a"><a href="#/accounts">{pendingAccounts.length} account(s) to review</a></li>)
@@ -2970,11 +3007,11 @@ function PageHome({ ctx }: { ctx: Ctx }) {
       <section className="dashboard-section dashboard-initiatives" aria-labelledby="initiatives-heading">
         <header className="dashboard-section-header">
           <h2 id="initiatives-heading"><FlaskConical size={18} /> Your initiatives</h2>
-          <span className="dashboard-badge">{myInitiatives.length}</span>
+          <span className="dashboard-badge">{homeInitiatives.length}</span>
         </header>
-        {myInitiatives.length ? (
+        {homeInitiatives.length ? (
           <div className="card-grid dashboard-initiatives-grid">
-            {myInitiatives.map((i) => (
+            {homeInitiatives.map((i) => (
               <div className="dashboard-card-wrap" key={i.id}>
                 <InitiativeCard ctx={ctx} ini={i} />
               </div>
@@ -3351,38 +3388,6 @@ function PageProposals({ ctx }: { ctx: Ctx }) {
   )
 }
 
-function PageRequests({ ctx }: { ctx: Ctx }) {
-  const ledIds = ctx.data.initiatives.filter((i) => i.leadId === ctx.userId).map((i) => i.id)
-  const reqs = ctx.data.requests.filter((r) =>
-    r.kind === 'join' && r.status === 'pending' &&
-    (ctx.isAdmin || ledIds.includes(r.initiativeId ?? '')))
-  return (
-    <div>
-      <h1 className="section">Join requests</h1>
-      {reqs.length ? reqs.map((r) => {
-        const ini = ctx.data.initiatives.find((i) => i.id === r.initiativeId)
-        return (
-          <div className="card" key={r.id}>
-            <div className="between">
-              <div>
-                <strong>{ctx.personName(r.userId)}</strong> &rarr; {ini?.title}
-                <p className="muted">{r.body}</p>
-              </div>
-            </div>
-            <DecisionForm
-              ctx={ctx}
-              approveLabel="Add to team"
-              onApprove={() => ctx.run('decideJoin',
-                { requestId: r.id, decision: 'approved' }, 'Member added.')}
-              onReject={(fb) => ctx.run('decideJoin',
-                { requestId: r.id, decision: 'rejected', feedback: fb }, 'Request declined.')}
-            />
-          </div>
-        )
-      }) : <Empty>No pending requests.</Empty>}
-    </div>
-  )
-}
 
 function PageAccounts({ ctx }: { ctx: Ctx }) {
   const people = [...ctx.data.people].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
@@ -3810,7 +3815,7 @@ function PageNotifications({ ctx }: { ctx: Ctx }) {
 // --- root -----------------------------------------------------------
 
 const GUARDED = new Set([
-  'proposals', 'new-proposal', 'requests', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
+  'proposals', 'new-proposal', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
 export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onVerifyLink, onSignOut, authEmail }: AppProps) {
@@ -3932,7 +3937,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     { to: '#/signin', label: 'Sign in', icon: LogIn, show: !me && mode === 'live' },
     { to: '#/notifications', label: unreadCount ? `Inbox (${unreadCount})` : 'Inbox', icon: Bell, show: approved },
     { to: '#/proposals', label: 'Proposals', icon: Sparkles, show: approved },
-    { to: '#/requests', label: 'Join requests', icon: UserPlus, show: navAccess.joinRequests },
     { to: '#/assignments', label: 'Review assignments', icon: ClipboardList, show: isResearch },
     { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: navAccess.accounts },
     { to: '#/health', label: 'Health', icon: HeartPulse, show: navAccess.health },
@@ -3945,7 +3949,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     if (GUARDED.has(route.name) && !approved) return <AccessNeeded ctx={ctx} />
     if (route.name === 'accounts' && !navAccess.accounts) return <NotFound />
     if (route.name === 'audit' && !navAccess.audit) return <NotFound />
-    if (route.name === 'requests' && !navAccess.joinRequests) return <NotFound />
     if (route.name === 'health' && !navAccess.health) return <NotFound />
     if (route.name === 'assignments' && !ctx.isResearch) return <NotFound />
     switch (route.name) {
@@ -3964,7 +3967,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
       case 'document': return <PageDocument ctx={ctx} />
       case 'new-proposal': return <NewProposalForm ctx={ctx} />
       case 'proposals': return <PageProposals ctx={ctx} />
-      case 'requests': return <PageRequests ctx={ctx} />
       case 'accounts': return <PageAccounts ctx={ctx} />
       case 'assignments': return <PageAssignments ctx={ctx} />
       case 'health': return <PageHealth ctx={ctx} />

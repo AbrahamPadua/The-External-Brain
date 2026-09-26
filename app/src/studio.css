@@ -683,3 +683,12 @@ a.card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   .empty { padding: 24px 16px; }
   .tabs { gap: 4px; margin-bottom: 14px; }
 }
+
+/* Initiative cards: link area + inline join requests */
+.initiative-card-link { display: block; color: inherit; flex: 1; }
+.initiative-card-link:hover { text-decoration: none; }
+.initiative-card:has(.initiative-card-link:hover) { border-color: var(--teal); }
+.initiative-card-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius); }
+.initiative-card-joins { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.initiative-card-joins .between strong { display: inline-flex; align-items: center; gap: 6px; }
+.initiative-card-join p { margin: 2px 0 8px; }

@@ -22,6 +22,12 @@ async function show(data: Data, userId: string, hash = '#/') {
   })
 }
 const navLabels = () => [...host.querySelectorAll('a')].map(a => a.textContent?.trim() ?? '')
+const withJoin = () => {
+  const data = structuredClone(seed)
+  data.requests = [...data.requests.filter(r => r.kind !== 'join'),
+    { id: 'j-test', kind: 'join', userId: 'sam', initiativeId: 'memory', title: 'Join', body: 'Keen to help', status: 'pending' }]
+  return data
+}
 
 it('hides Health from members and leads, and shows it to Research and Operations', async () => {
   await show(structuredClone(seed), 'alex')
@@ -35,4 +41,11 @@ it('hides Health from members and leads, and shows it to Research and Operations
 
   await show(structuredClone(seed), 'sam')
   expect(navLabels()).toContain('Health')
+})
+
+it('puts join requests on the initiative card for its lead', async () => {
+  await show(withJoin(), 'alex')
+  const card = [...host.querySelectorAll('.initiative-card')].find(c => c.textContent?.includes('Memory in Motion'))
+  expect(card?.querySelector('.initiative-card-joins')?.textContent).toContain('Sam Patel')
+  expect(card?.querySelector('.initiative-card-joins button')?.textContent).toContain('Add to team')
 })

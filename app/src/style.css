@@ -855,16 +855,23 @@ mark.hl.open{background:var(--hl-open,#fcd34d)}
 .progress-rm-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; }
 .btn.progress-roast { background: #ff6b94; color: #0f172a; border: 1px solid #ff6b94; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
 .btn.progress-roast:not(:disabled):is(:hover, :focus-visible) { background: #d92344; color: #fff; border-color: #d92344; }
-.btn.progress-roast svg { transform-origin: 50% 85%; }
-.btn.progress-roast:not(:disabled):hover svg { animation: roast-flame-flicker 650ms ease-in-out infinite; }
+.btn.progress-roast .roast-flame { overflow: visible; flex-shrink: 0; }
+.roast-flame-outer, .roast-flame-core { transform-origin: 50% 100%; transform-box: fill-box; }
+.btn.progress-roast:not(:disabled):hover .roast-flame-outer { animation: roast-flame-flicker 650ms ease-in-out infinite; }
+.btn.progress-roast:not(:disabled):hover .roast-flame-core { animation: roast-flame-core-flicker 430ms ease-in-out infinite alternate; }
 @keyframes roast-flame-flicker {
-  0%, 100% { transform: rotate(-5deg) scale(1); }
-  35% { transform: rotate(5deg) scale(1.12, 1.18); }
-  70% { transform: rotate(-3deg) scale(.96, 1.08); }
+  0%, 100% { transform: scale(1) skewX(-2deg); }
+  35% { transform: scale(.92, 1.13) skewX(3deg); }
+  70% { transform: scale(1.06, .94) skewX(-3deg); }
+}
+@keyframes roast-flame-core-flicker {
+  from { transform: scale(.9, .88) skewX(3deg); }
+  to { transform: scale(1.08, 1.16) skewX(-4deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .btn.progress-roast { transition: none; }
-  .btn.progress-roast:not(:disabled):hover svg { animation: none; }
+  .btn.progress-roast:not(:disabled):hover .roast-flame-outer,
+  .btn.progress-roast:not(:disabled):hover .roast-flame-core { animation: none; }
 }
 .progress-chevron-open { transform: rotate(180deg); }
 .progress-reviews { display: grid; gap: 12px; margin: 20px 0 0 18px; border-left: 2px solid var(--line); padding-left: 20px; }

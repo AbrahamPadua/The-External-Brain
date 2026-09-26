@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
-import { CalendarDays, ChevronDown, FileText, Flame, MessageSquare } from 'lucide-react'
+import { CalendarDays, ChevronDown, FileText, MessageSquare } from 'lucide-react'
 import type { DocumentRecord, Person } from './model'
 import { textOfHtml } from './highlight'
 import { groupProgress } from './progress-data'
@@ -55,7 +55,11 @@ export function Progress({ initiativeId, documents, people, currentCycle, startR
                   <MessageSquare size={15} /> Reviews ({reviews.length})<ChevronDown size={16} className={isOpen ? 'progress-chevron-open' : ''} />
                 </button> : null}
                 <button type="button" className="btn sm progress-roast" disabled={busy || !!reason}
-                  title={reason || 'Write a review for this RM'} onClick={() => onRoast(rm)}><Flame size={16} /> Roast</button>
+                  title={reason || 'Write a review for this RM'} onClick={() => onRoast(rm)}>
+                  <svg className="roast-flame" viewBox="0 0 32 40" width="20" height="24" aria-hidden="true" focusable="false">
+                    <path className="roast-flame-outer" fill="#ff9800" d="M15 1C14 8 12 14 8 18C7 14 6 11 5 10C5 19 0 23 1 29C2 36 8 40 16 40C25 40 31 34 31 27C31 19 27 12 24 7C25 12 24 15 23 16C21 10 19 5 15 1Z" />
+                    <path className="roast-flame-core" fill="#ffdb00" d="M16 23C15 28 14 31 12 33C12 30 11 28 11 28C10 33 8 35 10 38C11 40 14 40 16 40C21 40 23 37 22 34C21 30 20 28 19 27C20 30 19 31 19 31C18 27 17 25 16 23Z" />
+                  </svg> Roast</button>
               </div>
             </div>
             {reviews.length && isOpen ? <div id={`reviews-${rm.id}`} className="progress-reviews">{reviews.map(reviewCard)}</div> : null}

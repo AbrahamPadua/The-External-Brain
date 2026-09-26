@@ -200,31 +200,6 @@ select {
 }
 
 /* Scoped overrides for dark mode hardcoded white surfaces */
-.theme-dark .editor {
-  background: var(--card);
-  border-color: var(--edge);
-  border-radius: var(--radius);
-}
-
-.theme-dark .editor .toolbar {
-  border-bottom-color: var(--edge);
-  background: var(--surface);
-}
-
-.theme-dark .editor .toolbar button {
-  background: var(--card);
-  border-color: var(--edge);
-  color: var(--ink);
-}
-
-.theme-dark .editor .toolbar button:hover {
-  background: var(--navy-3);
-}
-
-.theme-dark .editor.readonly {
-  background: var(--surface);
-}
-
 .theme-dark .btn.secondary {
   background: transparent;
   color: var(--teal-ink);
@@ -687,13 +662,6 @@ select {
 /* Form field typography & readability */
 .field-label { font-weight: 600; color: var(--ink); margin-bottom: 2px; }
 .field-hint { font-family: var(--font-body, inherit); font-size: 0.82rem; line-height: 1.45; color: var(--muted); }
-
-/* Rich document editor focus & toolbar */
-.editor { border-color: var(--line); }
-.editor .toolbar { gap: 6px; padding: 8px 10px; }
-.editor .toolbar button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
-.editor .ProseMirror { font-family: var(--font-body, inherit); line-height: 1.6; }
-.editor .ProseMirror:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--primary); }
 
 /* Threads, quotes & comments */
 .thread { padding: 16px; border-color: var(--line); }

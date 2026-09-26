@@ -640,76 +640,7 @@ textarea:focus {
   max-width: 18ch;
 }
 
-/* editor (Tiptap) ------------------------------------------------- */
-
-.editor {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-}
-.editor .toolbar {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-}
-.editor .toolbar button {
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 6px;
-  padding: 4px 9px;
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.editor .toolbar button:hover {
-  background: var(--bg-2);
-}
-.editor .ProseMirror {
-  padding: 14px 16px;
-  min-height: 170px;
-  outline: none;
-}
-.editor .ProseMirror:focus {
-  outline: none;
-}
-.editor.readonly {
-  background: var(--bg-2);
-}
-.editor.readonly .ProseMirror {
-  min-height: 0;
-  overflow-wrap: anywhere;
-}
-.editor .ProseMirror h2 {
-  font-size: 1.1rem;
-  margin: 0.8em 0 0.3em;
-}
-.editor .ProseMirror p {
-  margin: 0 0 0.6em;
-}
-.editor .ProseMirror ul {
-  margin: 0 0 0.6em;
-  padding-left: 1.3em;
-}
-.editor .ProseMirror blockquote {
-  border-left: 3px solid var(--line);
-  margin: 0 0 0.6em;
-  padding-left: 12px;
-  color: var(--muted);
-}
-.editor .ProseMirror img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 8px;
-}
-.editor .ProseMirror p.is-editor-empty:first-child::before {
-  content: attr(data-placeholder);
-  color: var(--muted);
-  float: left;
-  height: 0;
-  pointer-events: none;
-}
+/* editor (Tiptap): see src/editor.css, imported by Editor.tsx ----- */
 
 /* responsive --------------------------------------------------- */
 
@@ -789,7 +720,10 @@ mark.hl.open{background:var(--hl-open,#fcd34d)}
 
 /* split drafting workspace ----------------------------------------- */
 .split{display:grid;gap:0;align-items:start}
-.split-pane{min-width:0;overflow:auto}
+/* clip, not auto: a scroll container here would stop the editor toolbar from
+   sticking below the top bar while the page scrolls. Wide blocks (tables,
+   code) scroll inside their own wrappers. */
+.split-pane{min-width:0;overflow-x:clip;overflow-y:visible}
 .split-handle{
   cursor:col-resize;background:var(--line);border:0;padding:0;width:6px;
   border-radius:3px;align-self:stretch;margin:0 6px;

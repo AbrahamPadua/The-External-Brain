@@ -47,8 +47,11 @@ const ALLOWED: Record<string, readonly string[]> = {
   P: [], DIV: [], SPAN: [], BR: [], HR: [],
   STRONG: [], B: [], EM: [], I: [], U: [], S: [], DEL: [], MARK: [], SMALL: [], SUB: [], SUP: [],
   H1: [], H2: [], H3: [], H4: [], H5: [], H6: [],
-  UL: [], OL: [], LI: [], BLOCKQUOTE: [], CODE: [], PRE: [], FIGURE: [], FIGCAPTION: [],
-  TABLE: [], THEAD: [], TBODY: [], TR: [], TD: [], TH: [],
+  // data-type / data-checked mark checklists; they carry no text, so they do not
+  // change the canonical text, and they let a checklist render as one.
+  UL: ['data-type'], OL: ['start'], LI: ['data-type', 'data-checked'],
+  BLOCKQUOTE: [], CODE: [], PRE: [], FIGURE: [], FIGCAPTION: [],
+  TABLE: [], THEAD: [], TBODY: [], TR: [], TD: ['colspan', 'rowspan'], TH: ['colspan', 'rowspan'],
   IMG: ['alt', 'title', 'width', 'height', 'data-object-path', 'src'],
   A: ['title', 'href'],
 }

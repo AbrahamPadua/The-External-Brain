@@ -33,7 +33,7 @@ it('hides the Health page from members and leads, and shows it to Research and O
   await show(structuredClone(seed), 'alex')
   expect(navLabels()).not.toContain('Health')
   // Members still see each initiative's HP on its card.
-  expect(host.querySelector('.initiative-card .hp')).not.toBeNull()
+  expect(host.querySelector('.catalog-card .hp')).not.toBeNull()
   await act(async () => root!.unmount()); root = undefined; host.remove()
 
   await show(structuredClone(seed), 'alex', '#/health')
@@ -52,9 +52,10 @@ it('drops the Proposals and Join requests pages from navigation', async () => {
 
 it('puts join requests on the initiative card for its lead', async () => {
   await show(withJoin(), 'alex')
-  const card = [...host.querySelectorAll('.initiative-card')].find(c => c.textContent?.includes('Memory in Motion'))
-  expect(card?.querySelector('.initiative-card-joins')?.textContent).toContain('Sam Patel')
-  expect(card?.querySelector('.initiative-card-joins button')?.textContent).toContain('Add to team')
+  const card = [...host.querySelectorAll('.home-initiative')].find(c => c.textContent?.includes('Memory in Motion'))
+  expect(card?.querySelector('.catalog-card')).not.toBeNull()
+  expect(card?.querySelector('.initiative-joins')?.textContent).toContain('Sam Patel')
+  expect(card?.querySelector('.initiative-joins button')?.textContent).toContain('Add to team')
 })
 
 it('shows proposals on Home only when nothing is pending', async () => {

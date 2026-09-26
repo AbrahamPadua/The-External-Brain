@@ -2516,65 +2516,36 @@ function PageSettings({
   )
 }
 
-function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
-  let hash = 0
-  for (let i = 0; i < ini.id.length; i++) hash = ini.id.charCodeAt(i) + ((hash << 5) - hash)
-  const hue = Math.abs(hash) % 360
-  
-  const bg = ini.coverUrl 
-    ? `url(${ini.coverUrl}) ${ini.coverPositionX??50}% ${ini.coverPositionY??50}%/cover no-repeat`
-    : (ini.coverFallbackColor || `hsl(${hue}, 65%, 85%)`)
-
-  // Join requests live on the card itself, for the lead and for Research/Operations.
+/**
+ * Pending join requests for one initiative, shown under its card on Home for
+ * the lead and for Research/Operations.
+ */
+function InitiativeJoinRequests({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   const canDecide = ctx.approved && (ini.leadId === ctx.userId || ctx.isAdmin)
   const joinReqs = canDecide
     ? ctx.data.requests.filter((r) => r.kind === 'join' && r.status === 'pending' && r.initiativeId === ini.id)
     : []
-
+  if (!joinReqs.length) return null
   return (
-    <div className="card initiative-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-    <a className="initiative-card-link" href={`#/initiative/${ini.id}/overview`}>
-      <div style={{
-        margin: '-20px -20px 20px -20px',
-        height: '140px',
-        background: bg
-      }} />
+    <div className="initiative-joins" aria-label={`Join requests for ${ini.title}`}>
       <div className="between">
-        <h3 style={{ marginBottom: 4 }}>{ini.title}</h3>
-        <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+        <strong><UserPlus size={15} /> Join requests</strong>
+        <span className="dashboard-badge dashboard-badge-coral">{joinReqs.length}</span>
       </div>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <Pill>{ini.category}</Pill>
-        <span className="muted">{ini.members.length} member{ini.members.length === 1 ? '' : 's'}</span>
-      </div>
-      <p className="clamp3 muted">{ini.abstract}</p>
-      <div className="row" style={{ marginTop: 10 }}>
-        <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-        {ctx.approved ? <HpBar hp={ini.hp} /> : null}
-      </div>
-    </a>
-    {joinReqs.length ? (
-      <div className="initiative-card-joins">
-        <div className="between">
-          <strong><UserPlus size={15} /> Join requests</strong>
-          <span className="dashboard-badge dashboard-badge-coral">{joinReqs.length}</span>
+      {joinReqs.map((r) => (
+        <div className="initiative-join" key={r.id}>
+          <strong>{ctx.personName(r.userId)}</strong>
+          {r.body ? <p className="muted">{r.body}</p> : null}
+          <DecisionForm
+            ctx={ctx}
+            approveLabel="Add to team"
+            onApprove={() => ctx.run('decideJoin',
+              { requestId: r.id, decision: 'approved' }, 'Member added.')}
+            onReject={(fb) => ctx.run('decideJoin',
+              { requestId: r.id, decision: 'rejected', feedback: fb }, 'Request declined.')}
+          />
         </div>
-        {joinReqs.map((r) => (
-          <div className="initiative-card-join" key={r.id}>
-            <strong>{ctx.personName(r.userId)}</strong>
-            {r.body ? <p className="muted">{r.body}</p> : null}
-            <DecisionForm
-              ctx={ctx}
-              approveLabel="Add to team"
-              onApprove={() => ctx.run('decideJoin',
-                { requestId: r.id, decision: 'approved' }, 'Member added.')}
-              onReject={(fb) => ctx.run('decideJoin',
-                { requestId: r.id, decision: 'rejected', feedback: fb }, 'Request declined.')}
-            />
-          </div>
-        ))}
-      </div>
-    ) : null}
+      ))}
     </div>
   )
 }
@@ -2628,7 +2599,10 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
             <p className="catalog-overlay-abstract">{ini.abstract}</p>
           </div>
           <div className="catalog-overlay-footer">
-            <span>{ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}</span>
+            <span className="catalog-overlay-meta">
+              {ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}
+              {ctx.approved ? <HpBar hp={ini.hp} /> : null}
+            </span>
             <span className="catalog-overlay-link" aria-hidden="true">View initiative <span aria-hidden="true">→</span></span>
           </div>
         </div>
@@ -2834,8 +2808,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
           <SignInPanel ctx={ctx} />
         </div>
         <h2>Active initiatives</h2>
-        <div className="card-grid">
-          {featured.map((i) => <InitiativeCard key={i.id} ctx={ctx} ini={i} />)}
+        <div className="catalog-grid">
+          {featured.map((i) => <CatalogCard key={i.id} ctx={ctx} ini={i} />)}
         </div>
       </div>
     )
@@ -3033,10 +3007,11 @@ function PageHome({ ctx }: { ctx: Ctx }) {
           <span className="dashboard-badge">{homeInitiatives.length}</span>
         </header>
         {homeInitiatives.length ? (
-          <div className="card-grid dashboard-initiatives-grid">
+          <div className="catalog-grid dashboard-initiatives-grid">
             {homeInitiatives.map((i) => (
-              <div className="dashboard-card-wrap" key={i.id}>
-                <InitiativeCard ctx={ctx} ini={i} />
+              <div className="dashboard-card-wrap home-initiative" key={i.id}>
+                <CatalogCard ctx={ctx} ini={i} />
+                <InitiativeJoinRequests ctx={ctx} ini={i} />
               </div>
             ))}
           </div>

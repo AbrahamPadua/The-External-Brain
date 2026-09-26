@@ -140,7 +140,7 @@ import type { Anchor, TextMap } from './highlight'
 import {
   ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
-  Menu, Moon, Plus, Save, Send, Settings, ShieldCheck, Sparkles, Sun, Trash2, TriangleAlert, UserPlus, X,
+  Maximize2, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Save, Send, Settings, ShieldCheck, Sparkles, SquareArrowOutUpRight, Sun, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
 
 type AppProps = {
@@ -1106,8 +1106,10 @@ function CoverForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   )
 }
 
-export function Modal({ titleId, onRequestClose, children }: {
+export function Modal({ titleId, onRequestClose, children, size }: {
   titleId:string; onRequestClose:()=>void; children:ReactNode
+  /** 'document' gives RM and review editors a near-full-screen dialog. */
+  size?:'document'
 }) {
   const panel=useRef<HTMLDivElement>(null)
   const closeRef=useRef(onRequestClose)
@@ -1130,7 +1132,7 @@ export function Modal({ titleId, onRequestClose, children }: {
   },[titleId])
   return <div className="modal-overlay" role="presentation"
     onMouseDown={(e)=>{if(e.target===e.currentTarget)onRequestClose()}}>
-    <div ref={panel} className="modal-card stack" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <div ref={panel} className={`modal-card stack${size==='document'?' modal-document':''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
       {children}
     </div>
   </div>
@@ -1453,6 +1455,39 @@ function AdjustHpForm({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
 // --- document views ---------------------------------------------------
 
 const SPLIT_KEY = 'openlabs:split:v1'
+const REFERENCE_KEY = 'openlabs:review-reference:v1'
+
+/**
+ * Whether a review draft shows the Roast Me it reviews beside it. The choice is
+ * the reviewer's and sticks across drafts, the dialog and the full page.
+ */
+function useReferencePane(): [boolean, () => void] {
+  const [shown, setShown] = useState(() => {
+    try { return localStorage.getItem(REFERENCE_KEY) !== 'hidden' } catch { return true }
+  })
+  const toggle = () => setShown((was) => {
+    const next = !was
+    try { localStorage.setItem(REFERENCE_KEY, next ? 'shown' : 'hidden') } catch { /* ignore */ }
+    return next
+  })
+  return [shown, toggle]
+}
+
+/** Icon button that shows or hides the Roast Me beside a review draft. */
+function ReferenceToggle({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
+  const label = shown ? 'Hide the Roast Me being reviewed' : 'Show the Roast Me being reviewed'
+  return (
+    <button type="button" className="btn ghost sm icon-btn" onClick={onToggle}
+      aria-label={label} title={label} aria-pressed={shown}>
+      {shown ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+    </button>
+  )
+}
+
+/** A review draft that has a pinned Roast Me to show beside it. */
+function hasReferencePane(ctx: Ctx, doc: DocumentRecord): boolean {
+  return doc.kind !== 'rm' && doc.status === 'draft' && !!referencedVersion(ctx, doc)
+}
 const readSplit = (name: string): number => {
   try {
     const value = Number(localStorage.getItem(`${SPLIT_KEY}:${name}`))
@@ -1469,8 +1504,11 @@ const readSplit = (name: string): number => {
  * stack (see style.css) because a half-width column is narrower than a readable
  * line, and the divider is hidden rather than left as a dead control.
  */
-function SplitPane({ name, label, left, right }: {
+function SplitPane({ name, label, left, right, collapsed = false }: {
   name: string; label: string; left: ReactNode; right: ReactNode
+  /** Hide the left pane. The right pane keeps its place in the tree, so an
+   *  editor inside it is not remounted (no lost cursor, undo or state). */
+  collapsed?: boolean
 }) {
   const [pct, setPct] = useState(() => readSplit(name))
   const wrap = useRef<HTMLDivElement | null>(null)
@@ -1497,9 +1535,9 @@ function SplitPane({ name, label, left, right }: {
 
   return (
     <div className="split" ref={wrap}
-      style={{ gridTemplateColumns: `minmax(0,${pct}fr) auto minmax(0,${100 - pct}fr)` }}>
-      <div className="split-pane">{left}</div>
-      <div
+      style={{ gridTemplateColumns: collapsed ? 'minmax(0,1fr)' : `minmax(0,${pct}fr) auto minmax(0,${100 - pct}fr)` }}>
+      {collapsed ? null : <div className="split-pane">{left}</div>}
+      {collapsed ? null : <div
         className="split-handle" role="separator" tabIndex={0}
         aria-orientation="vertical" aria-label={label}
         aria-valuenow={pct} aria-valuemin={20} aria-valuemax={80}
@@ -1512,7 +1550,7 @@ function SplitPane({ name, label, left, right }: {
           else if (e.key === 'End') { e.preventDefault(); store(75) }
           else if (e.key === 'Enter') { e.preventDefault(); store(50) }
         }}
-      />
+      />}
       <div className="split-pane">{right}</div>
     </div>
   )
@@ -1533,9 +1571,10 @@ function referencedVersion(ctx: Ctx, doc: DocumentRecord) {
   return version ? { target, version } : null
 }
 
-function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted }: {
+function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = true }: {
   ctx:Ctx; doc:DocumentRecord; ini:Initiative;
   onWorkState?:(state:{unsaved:boolean;uploads:number})=>void; onSubmitted?:()=>void
+  showReference?:boolean
 }) {
   const [title, setTitle] = useState(doc.title)
   const [body, setBody] = useState(doc.body)
@@ -1667,11 +1706,11 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted }: {
     </>
   )
 
-  if (!reference) return <div className="card">{draftBody}</div>
+  if (!reference) return <div className="card doc-draft">{draftBody}</div>
   return (
-    <div className="card">
+    <div className="card doc-draft">
       <SplitPane
-        name="review" label="Resize the Roast Me and review panes"
+        name="review" label="Resize the Roast Me and review panes" collapsed={!showReference}
         left={
           <section aria-label={`Roast Me under review, version ${reference.version.version}`}>
             <div className="between">
@@ -1684,7 +1723,10 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted }: {
                   {reference.target.authorName ?? ctx.personName(reference.target.authorId)}
                 </div>
               </div>
-              <a className="btn ghost sm" href={`#/document/${reference.target.id}`}>Open full page</a>
+              <a className="btn ghost sm icon-btn" href={`#/document/${reference.target.id}`}
+                aria-label="Open this Roast Me on its own page" title="Open this Roast Me on its own page">
+                <SquareArrowOutUpRight size={15} />
+              </a>
             </div>
             {/* Read-only and pinned: the reference never becomes editable, and it
                 shows the assigned version even after a later revision. */}
@@ -2945,6 +2987,7 @@ function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClo
   const doc=ctx.data.documents.find(d=>d.id===documentId)
   const ini=doc?ctx.data.initiatives.find(i=>i.id===doc.initiativeId):undefined
   const [work,setWork]=useState({unsaved:false,uploads:0})
+  const [referenceShown,toggleReference]=useReferencePane()
   if(!doc||!ini)return null
   const requestClose=()=>{
     if(work.uploads>0){if(!window.confirm('An image upload is still running. Close and stop inserting it into this editor?'))return}
@@ -2952,15 +2995,18 @@ function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClo
     onClose()
   }
   const canEdit=doc.authorId===ctx.userId||(doc.kind==='rm'&&ini.members.includes(ctx.userId??''))
-  return <Modal titleId="rm-modal-title" onRequestClose={requestClose}>
-    <div className="between"><h2 id="rm-modal-title">{doc.title}</h2>
-      <div className="row"><a className="btn ghost sm" href={`#/document/${doc.id}`} onClick={e=>{
-        if(work.uploads>0&&!window.confirm('An image upload is running. Leave this modal?'))e.preventDefault()
-        else if(work.unsaved&&!window.confirm('Open the full page with unsaved changes?'))e.preventDefault()
-      }}>Open full page</a>
-        <button className="btn ghost sm" onClick={requestClose} aria-label="Close"><X size={16}/></button></div></div>
-    {doc.status==='draft'&&canEdit
-      ? <DraftEditor ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose}/>
+  const editing=doc.status==='draft'&&canEdit
+  return <Modal titleId="rm-modal-title" onRequestClose={requestClose} size="document">
+    <div className="between modal-document-header"><h2 id="rm-modal-title">{doc.title}</h2>
+      <div className="row modal-document-actions">
+        {editing&&hasReferencePane(ctx,doc)?<ReferenceToggle shown={referenceShown} onToggle={toggleReference}/>:null}
+        <a className="btn ghost sm icon-btn" href={`#/document/${doc.id}`} aria-label="Open full page" title="Open full page" onClick={e=>{
+          if(work.uploads>0&&!window.confirm('An image upload is running. Leave this modal?'))e.preventDefault()
+          else if(work.unsaved&&!window.confirm('Open the full page with unsaved changes?'))e.preventDefault()
+        }}><Maximize2 size={16}/></a>
+        <button className="btn ghost sm icon-btn" onClick={requestClose} aria-label="Close" title="Close"><X size={16}/></button></div></div>
+    {editing
+      ? <DraftEditor ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose} showReference={referenceShown}/>
       : doc.status==='draft'
         ? <p className="muted">This document is still a private draft.</p>
         : <SubmittedDoc key={doc.id} ctx={ctx} doc={doc} ini={ini}/>}
@@ -3193,6 +3239,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
 function PageDocument({ ctx }: { ctx: Ctx }) {
   const id = ctx.route.parts[1]
+  const [referenceShown, toggleReference] = useReferencePane()
   const doc = ctx.data.documents.find((d) => d.id === id)
   if (!doc) return <NotFound />
   const ini = ctx.data.initiatives.find((i) => i.id === doc.initiativeId)
@@ -3206,10 +3253,13 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
     }
     return (
       <div>
-        <p className="muted">
-          <a href={`#/initiative/${ini.id}/progress`}><ArrowLeft size={13} /> {ini.title}</a>
-        </p>
-        <DraftEditor ctx={ctx} doc={doc} ini={ini} />
+        <div className="between doc-page-header">
+          <p className="muted">
+            <a href={`#/initiative/${ini.id}/progress`}><ArrowLeft size={13} /> {ini.title}</a>
+          </p>
+          {hasReferencePane(ctx, doc) ? <ReferenceToggle shown={referenceShown} onToggle={toggleReference} /> : null}
+        </div>
+        <DraftEditor ctx={ctx} doc={doc} ini={ini} showReference={referenceShown} />
       </div>
     )
   }
@@ -3938,7 +3988,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
             <button className="btn sm" onClick={() => setPreviewRoles(null)}>Exit preview</button>
           </div>
         ) : null}
-        <div className={`ol-page ${narrow ? 'ol-page-narrow' : ''}`}>
+        <div className={`ol-page ${narrow ? 'ol-page-narrow' : route.name === 'document' ? 'ol-page-wide' : ''}`}>
           {render()}
         </div>
       </div>

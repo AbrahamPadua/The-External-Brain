@@ -215,3 +215,25 @@
 .catalog-chip { min-height: 36px; font-size: 13px; border-radius: 6px; }
 .catalog-toolbar-actions { flex-wrap: wrap; }
 .catalog-search { max-width: none; }
+
+/* RM and review documents: bigger dialog, wider full page, taller editor. */
+.modal-card.modal-document {
+  width: min(1400px, 100%);
+  height: calc(100vh - 40px);
+  max-height: none;
+}
+.modal-document-header { gap: 12px; align-items: flex-start; }
+.modal-document-header h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.modal-document-actions { gap: 6px; flex-wrap: nowrap; flex: 0 0 auto; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 34px; min-height: 34px; padding: 6px;
+}
+.icon-btn[aria-pressed="true"] { color: var(--teal, currentColor); }
+.doc-page-header { align-items: center; gap: 12px; }
+.doc-page-header p { margin: 0; }
+.doc-draft .editor:not(.readonly) .ProseMirror { min-height: min(58vh, 640px); }
+.ol-page.ol-page-wide { max-width: 1480px; }
+@media (min-width: 1100px) {
+  .ol-page.ol-page-wide { margin-left: calc(240px + max(0px, (100% - 240px - 1480px) / 2)); }
+}

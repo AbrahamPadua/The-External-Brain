@@ -1,5 +1,12 @@
 # UI changes
 
+## Editor and review workspace (2026-09-26)
+
+- Notion-style editor on the existing Tiptap setup: `/` command menu, selection bubble menu with an inline link field, tables, checklists, dividers, code blocks, a themed icon toolbar and drag-and-drop images. Content is still stored as HTML.
+- Imported titles with double-encoded characters (for example `Ã¢â‚¬â€`) are repaired for display, and imported RM bodies render as paragraphs and lists instead of monospace strips.
+- RM and review drafts open in a near-full-screen dialog and a wider full page. Header actions are icons: show/hide the RM being reviewed, open full page, close.
+- Details, follow-ups and known limits: [EDITOR-AND-REVIEW-UX.md](EDITOR-AND-REVIEW-UX.md).
+
 ## Technical studio revamp (2026-09-22)
 
 - Adapted the supplied UI dashboard HTML into the existing application: midnight surfaces, blue actions, coral/cyan accents, branded header and persistent desktop navigation. Mobile keeps the hamburger menu, Escape and focus behavior. Saved light/dark preferences remain intact.

@@ -49,12 +49,13 @@ export function Progress({ initiativeId, documents, people, currentCycle, startR
                 <p className="field-hint">{rm.authorName || people.find(p => p.id === rm.authorId)?.name || 'Author unavailable'}{rm.sourceWeek ? ` · ${rm.sourceWeek}` : ''}</p>
               </div></div>
               <span className={`progress-status progress-status-${rm.status}`}>{rm.status}</span>
-              <div className="progress-rm-actions"><button type="button" className="btn sm progress-roast" disabled={busy || !!reason}
-                title={reason || 'Write a review for this RM'} onClick={() => onRoast(rm)}><Flame size={16} /> Roast</button>
+              <div className="progress-rm-actions">
                 {reviews.length ? <button type="button" className="btn ghost sm" aria-expanded={isOpen} aria-controls={`reviews-${rm.id}`}
                   onClick={() => setExpanded(old => {const next = new Set(old); if (next.has(rm.id)) next.delete(rm.id); else next.add(rm.id); return next})}>
                   <MessageSquare size={15} /> Reviews ({reviews.length})<ChevronDown size={16} className={isOpen ? 'progress-chevron-open' : ''} />
-                </button> : <span className="progress-no-reviews">No reviews yet</span>}
+                </button> : null}
+                <button type="button" className="btn sm progress-roast" disabled={busy || !!reason}
+                  title={reason || 'Write a review for this RM'} onClick={() => onRoast(rm)}><Flame size={16} /> Roast</button>
               </div>
             </div>
             {reviews.length && isOpen ? <div id={`reviews-${rm.id}`} className="progress-reviews">{reviews.map(reviewCard)}</div> : null}

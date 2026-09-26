@@ -853,9 +853,8 @@ mark.hl.open{background:var(--hl-open,#fcd34d)}
 .progress-status { display: inline-block; justify-self: start; border-radius: 20px; padding: 4px 10px; background: var(--bg-2); color: var(--muted); font: 11px/1.5 var(--font-mono); }
 .progress-status-submitted { color: var(--teal-ink); }
 .progress-rm-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 10px; }
-.progress-roast { background: var(--bg-2); color: var(--ink); border: 1px solid var(--line); }
-.progress-roast:not(:disabled):hover { background: var(--primary); color: white; }
-.progress-no-reviews { color: var(--muted); font-size: 12px; }
+.progress-roast { background: #ff3b5c; color: #0f172a; border: 1px solid #ff3b5c; }
+.progress-roast:not(:disabled):is(:hover, :focus-visible) { background: #ff2e55; color: #0f172a; border-color: #ff2e55; }
 .progress-chevron-open { transform: rotate(180deg); }
 .progress-reviews { display: grid; gap: 12px; margin: 20px 0 0 18px; border-left: 2px solid var(--line); padding-left: 20px; }
 .progress-review { padding: 16px; border-radius: 8px; background: var(--bg-2); overflow-wrap: anywhere; }

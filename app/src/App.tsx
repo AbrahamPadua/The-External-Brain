@@ -165,8 +165,6 @@ type Ctx = {
   approved: boolean
   isResearch: boolean
   isOperations: boolean
-  /** Initiative health (HP) is visible to Research and Operations only. */
-  canSeeHealth: boolean
   isAdmin: boolean
   mode: 'demo' | 'live'
   busy: boolean
@@ -2552,7 +2550,7 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
       <p className="clamp3 muted">{ini.abstract}</p>
       <div className="row" style={{ marginTop: 10 }}>
         <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-        {ctx.canSeeHealth ? <HpBar hp={ini.hp} /> : null}
+        {ctx.approved ? <HpBar hp={ini.hp} /> : null}
       </div>
     </a>
     {joinReqs.length ? (
@@ -3128,7 +3126,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-          {ctx.canSeeHealth ? <HpBar hp={ini.hp} /> : null}
+          {internal ? <HpBar hp={ini.hp} /> : null}
         </div>
       </div>
 
@@ -3921,7 +3919,6 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
 
   const ctx: Ctx = {
     data, me, userId, approved, isResearch, isOperations, isAdmin, mode, busy, route,
-    canSeeHealth: isResearch || isOperations,
     authEmail: authEmail ?? null,
     personName: (id) => {
       const p = data.people.find((x) => x.id === id)

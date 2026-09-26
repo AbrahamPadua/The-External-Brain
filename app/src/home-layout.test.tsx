@@ -29,10 +29,11 @@ const withJoin = () => {
   return data
 }
 
-it('hides Health from members and leads, and shows it to Research and Operations', async () => {
+it('hides the Health page from members and leads, and shows it to Research and Operations', async () => {
   await show(structuredClone(seed), 'alex')
   expect(navLabels()).not.toContain('Health')
-  expect(host.querySelector('.hp')).toBeNull()
+  // Members still see each initiative's HP on its card.
+  expect(host.querySelector('.initiative-card .hp')).not.toBeNull()
   await act(async () => root!.unmount()); root = undefined; host.remove()
 
   await show(structuredClone(seed), 'alex', '#/health')

@@ -165,6 +165,8 @@ type Ctx = {
   approved: boolean
   isResearch: boolean
   isOperations: boolean
+  /** Initiative health (HP) is visible to Research and Operations only. */
+  canSeeHealth: boolean
   isAdmin: boolean
   mode: 'demo' | 'live'
   busy: boolean
@@ -371,6 +373,7 @@ export function navigationAccess(opts: {
   return {
     accounts: organizational,
     audit: organizational,
+    health: organizational,
     joinRequests: opts.approved && (organizational || opts.isInitiativeLead),
   }
 }
@@ -2543,7 +2546,7 @@ function InitiativeCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
       <p className="clamp3 muted">{ini.abstract}</p>
       <div className="row" style={{ marginTop: 10 }}>
         <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-        {ctx.approved ? <HpBar hp={ini.hp} /> : null}
+        {ctx.canSeeHealth ? <HpBar hp={ini.hp} /> : null}
       </div>
     </a>
   )
@@ -3063,7 +3066,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-          {internal ? <HpBar hp={ini.hp} /> : null}
+          {ctx.canSeeHealth ? <HpBar hp={ini.hp} /> : null}
         </div>
       </div>
 
@@ -3895,6 +3898,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
 
   const ctx: Ctx = {
     data, me, userId, approved, isResearch, isOperations, isAdmin, mode, busy, route,
+    canSeeHealth: isResearch || isOperations,
     authEmail: authEmail ?? null,
     personName: (id) => {
       const p = data.people.find((x) => x.id === id)
@@ -3931,7 +3935,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     { to: '#/requests', label: 'Join requests', icon: UserPlus, show: navAccess.joinRequests },
     { to: '#/assignments', label: 'Review assignments', icon: ClipboardList, show: isResearch },
     { to: '#/accounts', label: 'Accounts', icon: ShieldCheck, show: navAccess.accounts },
-    { to: '#/health', label: 'Health', icon: HeartPulse, show: approved },
+    { to: '#/health', label: 'Health', icon: HeartPulse, show: navAccess.health },
     { to: '#/audit', label: 'Audit', icon: Clock, show: navAccess.audit },
     // Settings stays last and is visually pinned above the sidebar footer.
     { to: '#/settings', label: 'Settings', icon: Settings, show: true },
@@ -3942,6 +3946,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     if (route.name === 'accounts' && !navAccess.accounts) return <NotFound />
     if (route.name === 'audit' && !navAccess.audit) return <NotFound />
     if (route.name === 'requests' && !navAccess.joinRequests) return <NotFound />
+    if (route.name === 'health' && !navAccess.health) return <NotFound />
     if (route.name === 'assignments' && !ctx.isResearch) return <NotFound />
     switch (route.name) {
       case '': return <PageHome ctx={ctx} />

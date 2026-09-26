@@ -69,11 +69,17 @@ assert.equal((await db.query('update storage.objects set name=$1 where name=$2 r
 await actor(ids.operations)
 assert.equal((await db.query('select name from storage.objects where name=$1', [image])).rows.length, 1, 'approved reader sees overview pictures')
 await assert.rejects(db.query(edit, args), /initiative member or Research required/)
-await actor(ids.pending)
-assert.equal((await db.query('select name from storage.objects where name=$1', [image])).rows.length, 0)
+// An active initiative's abstract/motivation pictures are part of its public
+// profile (202609260023): accounts awaiting approval and signed-out visitors see
+// the ones the saved content references, never an unreferenced upload.
 await owner()
-await db.exec('set role anon')
-await assert.rejects(db.query('select name from storage.objects where name=$1', [image]), /permission denied/)
+await db.query(insertImage, [`${iid}/unreferenced.png`])
+for (const who of ['pending', 'anon']) {
+  if (who === 'pending') await actor(ids.pending)
+  else { await owner(); await db.exec('set role anon') }
+  assert.equal((await db.query('select name from storage.objects where name=$1', [image])).rows.length, 1, `${who} sees the public profile picture`)
+  assert.equal((await db.query('select name from storage.objects where name=$1', [`${iid}/unreferenced.png`])).rows.length, 0, `${who} cannot see an unreferenced upload`)
+}
 await actor(ids.research)
 await db.query(edit, args)
 await db.query(insertImage, [`${iid}/research.png`])

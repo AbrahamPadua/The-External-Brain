@@ -188,6 +188,11 @@ const CATEGORIES = [
   'Computational modelling', 'Human-computer interaction', 'Other',
 ]
 
+/** Team size, including the public catalog where member ids are not loaded. */
+function memberTotal(ini: Initiative): number {
+  return ini.members.length || ini.memberCount || 0
+}
+
 function leadDisplay(ctx: Ctx, ini: Initiative): string {
   const account = ini.leadId ? ctx.data.people.find((p) => p.id === ini.leadId) : null
   return account ? nameOf(account) : ini.leadName?.trim() || 'Unassigned'
@@ -2600,7 +2605,7 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
           </div>
           <div className="catalog-overlay-footer">
             <span className="catalog-overlay-meta">
-              {ini.members.length} {ini.members.length === 1 ? 'member' : 'members'}
+              {memberTotal(ini)} {memberTotal(ini) === 1 ? 'member' : 'members'}
               {ctx.approved ? <HpBar hp={ini.hp} /> : null}
             </span>
             <span className="catalog-overlay-link" aria-hidden="true">View initiative <span aria-hidden="true">→</span></span>
@@ -3074,7 +3079,10 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
     r.kind === 'join' && r.initiativeId === ini.id && r.userId === ctx.userId && r.status === 'pending')
   const activity = ctx.data.audit.filter((a) => a.detail.includes(`[${ini.id}]`))
 
-  const tabs = internal
+  // Progress, tasks and activity are the team's workspace: members, the lead,
+  // and Research/Operations. Everyone else sees the public profile and team.
+  const workspace = internal && (isMember || ctx.isAdmin)
+  const tabs = workspace
     ? ['overview', 'progress', 'tasks', 'team', 'activity']
     : ['overview', 'team']
 
@@ -3124,7 +3132,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
           : <JoinForm ctx={ctx} initiativeId={ini.id} />
       } /> : null}
 
-      {tab === 'tasks' && internal ? (
+      {tab === 'tasks' && workspace ? (
         <div className="card">
           <div className="between">
             <h3>Tasks</h3>
@@ -3166,6 +3174,9 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
           <div className="card">
             <h3>Team</h3>
             <p className="muted" style={{ marginTop: 8 }}>Lead: {leadDisplay(ctx, ini)}</p>
+            {!ini.members.length && ini.memberCount
+              ? <p className="muted">{ini.memberCount} {ini.memberCount === 1 ? 'member' : 'members'}. Sign in with an approved account to see who is on the team.</p>
+              : null}
             {internal && ctx.isResearch && !ini.leadId ? <AssignLeadForm ctx={ctx} ini={ini} /> : null}
             <div className="stack" style={{ marginTop: 10 }}>
               {ini.members.map((mid) => {
@@ -3239,7 +3250,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         </div>
       ) : null}
 
-      {tab === 'progress' && internal ? <Progress initiativeId={ini.id} documents={ctx.data.documents}
+      {tab === 'progress' && workspace ? <Progress initiativeId={ini.id} documents={ctx.data.documents}
         people={ctx.data.people} busy={ctx.busy}
         currentCycle={ctx.data.cycles?.find(c => c.startsOn === losAngelesMonday() && !c.isBreak)?.startsOn}
         startRm={isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
@@ -3253,7 +3264,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
       {documentModalId?<DocumentModal key={documentModalId} ctx={ctx} documentId={documentModalId} onClose={()=>setDocumentModalId(null)}/>:null}
 
-      {tab === 'activity' && internal ? (
+      {tab === 'activity' && workspace ? (
         <div className="card">
           <h3>Activity</h3>
           {activity.length ? (

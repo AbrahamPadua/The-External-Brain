@@ -2,7 +2,7 @@ import { initiativeAbstract } from './initiative-details'
 import { supabase } from './client'
 import { cleanImportedText, importedDocumentTitle, presentDocumentTitle } from './imported-title'
 import { presentHistoricalBody } from './historical-body'
-import type { Data, DocumentRecord, Initiative, ProfileDetails } from './model'
+import type { Data, DocumentRecord, Initiative, Person, ProfileDetails } from './model'
 import { imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
 const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
 const SIGNUP_KEY='openlabs:signup:pending:v1'
@@ -103,19 +103,25 @@ export const stripSignedUrls = (htmlStr: string) => {
   return doc.body.innerHTML
 }
 /**
- * The public profile of every active initiative, for signed-out visitors and
- * accounts awaiting approval: everything except HP, tasks, progress and
- * activity. Team member names stay private; only the team size is public.
+ * The catalog for signed-out visitors and accounts awaiting approval: what an
+ * approved account sees of every initiative, without progress, tasks and
+ * activity. Team members arrive as display names only.
  */
-async function loadCatalog():Promise<Initiative[]>{
+async function loadCatalog():Promise<{initiatives:Initiative[];people:Person[]}>{
  const list=await rows('initiative_catalog')
  const coverUrls=await signPaths(COVERS_BUCKET,list.map(i=>i.cover_object_path).filter(Boolean))
  const contentUrls=await signPaths('initiative-content-images',list.flatMap(i=>[...objectPathsIn(i.abstract_html??''),...objectPathsIn(i.motivation_html??'')]))
- return list.map(i=>({id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.overview_html),status:i.status,category:i.category||'Research',leadId:'',leadName:i.lead_display_name??i.lead_name??'',members:[],memberCount:Number(i.member_count??0),tasks:[],hp:100,motivation:cleanImportedText(i.motivation??''),overviewHtml:i.overview_html??'',abstractHtml:applyImageUrls(i.abstract_html??'',contentUrls),motivationHtml:applyImageUrls(i.motivation_html??'',contentUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined}))
+ const people=new Map<string,Person>()
+ const initiatives=list.map(i=>{
+  const members:{id:string;name:string}[]=Array.isArray(i.members)?i.members:[]
+  for(const m of members)people.set(m.id,{id:m.id,name:m.name??'',email:'',status:'approved',roles:[]})
+  return {id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.overview_html),status:i.status,category:i.category||'Research',leadId:i.lead_id??'',leadName:i.lead_display_name??i.lead_name??'',members:members.map(m=>m.id),memberCount:Number(i.member_count??members.length),tasks:[],hp:typeof i.hp==='number'?i.hp:100,motivation:cleanImportedText(i.motivation??''),overviewHtml:i.overview_html??'',abstractHtml:applyImageUrls(i.abstract_html??'',contentUrls),motivationHtml:applyImageUrls(i.motivation_html??'',contentUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined}
+ })
+ return {initiatives,people:[...people.values()]}
 }
 export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
- if(!userId){state.initiatives=await loadCatalog();return state}
+ if(!userId){const catalog=await loadCatalog();state.initiatives=catalog.initiatives;state.people=catalog.people;return state}
  const profiles=await rows('profiles')
  const mine=profiles.find(p=>p.id===userId)
  // A profile with no name yet: finish the signup once, then read the row back.
@@ -124,7 +130,8 @@ export async function loadLive(userId:string|null):Promise<Data>{
  // placeholder for a profile that has not been filled in yet.
  state.people=profiles.map(p=>({id:p.id,name:p.display_name??'',email:'',status:p.account_status,roles:[],major:p.major??'',interests:p.interests??''}))
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
- state.initiatives=await loadCatalog();return state
+ const catalog=await loadCatalog();state.initiatives=catalog.initiatives
+ state.people.push(...catalog.people.filter(p=>!state.people.some(x=>x.id===p.id)));return state
  }
  const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles'].map(rows))
  // Which weeks Research has actually opened. A Roast Me draft can name a week

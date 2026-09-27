@@ -21,6 +21,7 @@ async function show(data: Data, userId: string | null, hash: string) {
     await settle()
   })
 }
+const go = async (hash: string) => act(async () => { window.location.hash = hash; await settle() })
 const tabs = () => [...host.querySelectorAll('.tabs .tab')].map(t => t.textContent)
 const withOutsider = () => {
   const data = structuredClone(seed)
@@ -28,26 +29,18 @@ const withOutsider = () => {
   return data
 }
 
-it('shows an approved non-member only the overview and team', async () => {
+it('gives every approved account the whole initiative, team or not', async () => {
   await show(withOutsider(), 'rio', '#/initiative/sound/overview')
-  expect(tabs()).toEqual(['Overview', 'Team'])
-  await act(async () => { window.location.hash = '#/initiative/sound/tasks'; await settle() })
-  expect(host.textContent).not.toContain('Document the first prototype')
+  expect(tabs()).toEqual(['Overview', 'Progress', 'Tasks', 'Team', 'Activity'])
+  await go('#/initiative/sound/tasks')
+  expect(host.textContent).toContain('Document the first prototype')
 })
 
-it('keeps the workspace tabs for members and for Research/Operations', async () => {
-  await show(withOutsider(), 'alex', '#/initiative/sound/overview')
-  expect(tabs()).toEqual(['Overview', 'Progress', 'Tasks', 'Team', 'Activity'])
-  await act(async () => root!.unmount()); root = undefined; host.remove()
-  await show(withOutsider(), 'sam', '#/initiative/memory/overview')
-  expect(tabs()).toEqual(['Overview', 'Progress', 'Tasks', 'Team', 'Activity'])
-})
-
-it('shows signed-out visitors the cover, motivation and team size from the public catalog', async () => {
+it('shows signed-out visitors everything except progress, tasks and activity', async () => {
   const data = structuredClone(seed)
   const ini = data.initiatives[0]
   Object.assign(ini, {
-    members: [], memberCount: 3, tasks: [],
+    status: 'stopped', hp: 70,
     coverUrl: 'https://images.example/cover.png',
     motivation: 'Navigation aids should be affordable.',
   })
@@ -55,9 +48,22 @@ it('shows signed-out visitors the cover, motivation and team size from the publi
   expect(tabs()).toEqual(['Overview', 'Team'])
   expect(host.querySelector<HTMLElement>('.initiative-cover')?.style.background).toContain('https://images.example/cover.png')
   expect(host.textContent).toContain('Navigation aids should be affordable.')
-  await act(async () => { window.location.hash = `#/initiative/${ini.id}/team`; await settle() })
-  expect(host.textContent).toContain('3 members')
-  await act(async () => { window.location.hash = '#/catalog'; await settle() })
+  expect(host.querySelector('.hp')?.textContent).toContain('70')
+
+  await go(`#/initiative/${ini.id}/tasks`)
+  expect(host.textContent).not.toContain('Document the first prototype')
+  await go(`#/initiative/${ini.id}/team`)
+  expect(host.textContent).toContain('Maya Chen')
+  expect(host.textContent).toContain('Alex Rivera')
+
+  await go('#/catalog')
+  expect(host.querySelector('select[aria-label="Filter by status"]')).not.toBeNull()
+  await act(async () => {
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Filter by status"]')!
+    select.value = 'stopped'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+  })
   const card = [...host.querySelectorAll('.catalog-card')].find(c => c.textContent?.includes(ini.title))
-  expect(card?.textContent).toContain('3 members')
+  expect(card?.querySelector('.hp')).not.toBeNull()
 })

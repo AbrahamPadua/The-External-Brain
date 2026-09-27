@@ -2606,7 +2606,7 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
           <div className="catalog-overlay-footer">
             <span className="catalog-overlay-meta">
               {memberTotal(ini)} {memberTotal(ini) === 1 ? 'member' : 'members'}
-              {ctx.approved ? <HpBar hp={ini.hp} /> : null}
+              <HpBar hp={ini.hp} />
             </span>
             <span className="catalog-overlay-link" aria-hidden="true">View initiative <span aria-hidden="true">→</span></span>
           </div>
@@ -2623,8 +2623,8 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
   const [sort, setSort] = useState('asc')
 
   const allowed = useMemo(() => {
-    return ctx.approved ? ctx.data.initiatives : ctx.data.initiatives.filter((i) => i.status === 'active')
-  }, [ctx.data.initiatives, ctx.approved])
+    return ctx.data.initiatives
+  }, [ctx.data.initiatives])
 
   const categoryList = useMemo(() => {
     const counts = new Map<string, number>()
@@ -2638,7 +2638,7 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
     const query = q.trim().toLowerCase()
     return allowed
       .filter((i) => {
-        if (ctx.approved && status !== 'all' && i.status !== status) return false
+        if (status !== 'all' && i.status !== status) return false
         if (category !== 'All' && i.category !== category) return false
         if (!query) return true
         const lead = leadDisplay(ctx, i)
@@ -2655,7 +2655,7 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
-          Every active Decoded Brain initiative at UC San Diego. Anyone can read this page.
+          Every Decoded Brain initiative at UC San Diego. Anyone can read this page.
         </p>
       </div>
       <div className="catalog-toolbar">
@@ -2669,14 +2669,12 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
             onChange={(e) => setQ(e.target.value)}
           />
           <div className="catalog-toolbar-actions">
-            {ctx.approved ? (
-              <label className="catalog-filter-label">
-                <select className="catalog-select" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
-                  <option value="all">All statuses</option>
-                  {['active', 'on_hold', 'completed', 'stopped', 'dead'].map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </label>
-            ) : null}
+            <label className="catalog-filter-label">
+              <select className="catalog-select" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="all">All statuses</option>
+                {['active', 'on_hold', 'completed', 'stopped', 'dead'].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
             <label className="catalog-filter-label">
               <select
                 className="catalog-select"
@@ -3066,9 +3064,6 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
   if (!ini) return <NotFound />
 
   const internal = ctx.approved
-  if (!internal && ini.status !== 'active') {
-    return <div className="card"><h3>{ini.title}</h3><p className="muted">This initiative is not public.</p></div>
-  }
 
   const isMember = !!ctx.userId && (ini.members.includes(ctx.userId) || ini.leadId === ctx.userId)
   const canManage = ini.leadId === ctx.userId || ctx.isAdmin
@@ -3079,10 +3074,9 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
     r.kind === 'join' && r.initiativeId === ini.id && r.userId === ctx.userId && r.status === 'pending')
   const activity = ctx.data.audit.filter((a) => a.detail.includes(`[${ini.id}]`))
 
-  // Progress, tasks and activity are the team's workspace: members, the lead,
-  // and Research/Operations. Everyone else sees the public profile and team.
-  const workspace = internal && (isMember || ctx.isAdmin)
-  const tabs = workspace
+  // Every approved account sees the whole initiative. Signed-out visitors see
+  // the same profile and team, without progress, tasks and activity.
+  const tabs = internal
     ? ['overview', 'progress', 'tasks', 'team', 'activity']
     : ['overview', 'team']
 
@@ -3109,7 +3103,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-          {internal ? <HpBar hp={ini.hp} /> : null}
+          <HpBar hp={ini.hp} />
         </div>
       </div>
 
@@ -3132,7 +3126,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
           : <JoinForm ctx={ctx} initiativeId={ini.id} />
       } /> : null}
 
-      {tab === 'tasks' && workspace ? (
+      {tab === 'tasks' && internal ? (
         <div className="card">
           <div className="between">
             <h3>Tasks</h3>
@@ -3174,9 +3168,6 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
           <div className="card">
             <h3>Team</h3>
             <p className="muted" style={{ marginTop: 8 }}>Lead: {leadDisplay(ctx, ini)}</p>
-            {!ini.members.length && ini.memberCount
-              ? <p className="muted">{ini.memberCount} {ini.memberCount === 1 ? 'member' : 'members'}. Sign in with an approved account to see who is on the team.</p>
-              : null}
             {internal && ctx.isResearch && !ini.leadId ? <AssignLeadForm ctx={ctx} ini={ini} /> : null}
             <div className="stack" style={{ marginTop: 10 }}>
               {ini.members.map((mid) => {
@@ -3250,7 +3241,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         </div>
       ) : null}
 
-      {tab === 'progress' && workspace ? <Progress initiativeId={ini.id} documents={ctx.data.documents}
+      {tab === 'progress' && internal ? <Progress initiativeId={ini.id} documents={ctx.data.documents}
         people={ctx.data.people} busy={ctx.busy}
         currentCycle={ctx.data.cycles?.find(c => c.startsOn === losAngelesMonday() && !c.isBreak)?.startsOn}
         startRm={isMember ? <StartRoastMe ctx={ctx} ini={ini} onOpen={setDocumentModalId} /> : null}
@@ -3264,7 +3255,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
 
       {documentModalId?<DocumentModal key={documentModalId} ctx={ctx} documentId={documentModalId} onClose={()=>setDocumentModalId(null)}/>:null}
 
-      {tab === 'activity' && workspace ? (
+      {tab === 'activity' && internal ? (
         <div className="card">
           <h3>Activity</h3>
           {activity.length ? (

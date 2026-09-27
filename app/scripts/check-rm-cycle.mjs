@@ -19,16 +19,16 @@ await db.exec(`create role anon; create role authenticated; create role service_
  create schema storage; create table storage.buckets(id text primary key,name text,public boolean); create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text); alter table storage.objects enable row level security;
  create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;
  grant usage on schema storage to anon,authenticated; grant select on storage.objects to anon,authenticated;`)
-for (const file of readdirSync('../supabase/migrations').filter(x => x.endsWith('.sql')).sort()) {
-  await db.exec(readFileSync('../supabase/migrations/' + file, 'utf8').replace('create extension if not exists pgcrypto;', ''))
+for (const file of readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(x => x.endsWith('.sql')).sort()) {
+  await db.exec(readFileSync(new URL('../../supabase/migrations/' + file, import.meta.url), 'utf8').replace('create extension if not exists pgcrypto;', ''))
 }
 
 const ids = {
   research: '00000000-0000-4000-8000-000000000001',
-  lead:     '00000000-0000-4000-8000-000000000002',
-  member:   '00000000-0000-4000-8000-000000000003',
+  lead: '00000000-0000-4000-8000-000000000002',
+  member: '00000000-0000-4000-8000-000000000003',
   outsider: '00000000-0000-4000-8000-000000000004',
-  pending:  '00000000-0000-4000-8000-000000000005',
+  pending: '00000000-0000-4000-8000-000000000005',
 }
 for (const id of Object.values(ids)) await db.query('insert into auth.users(id) values($1)', [id])
 await db.exec(`update profiles set account_status='approved' where id<>'${ids.pending}';
@@ -202,8 +202,10 @@ const histKey = 'notion:legacy:w1:rm'
 const hist = await val(`insert into documents(kind,initiative_id,submitted_version_number,is_historical_import,historical_source_key)
   values('rm',$1,1,true,$2) returning id`, [initiative, histKey])
 await db.query(`insert into document_versions(document_id,version_number,content,created_by) values($1,1,$2::jsonb,null)`,
-  [hist, JSON.stringify({ blocks: [], historical: 'true', source_key: histKey, source_author: 'A. Historian',
-    source_period: 'Spring 2025', source_week: 'Week 1', source_record_count: 2 })])
+  [hist, JSON.stringify({
+    blocks: [], historical: 'true', source_key: histKey, source_author: 'A. Historian',
+    source_period: 'Spring 2025', source_week: 'Week 1', source_record_count: 2
+  })])
 await actor(ids.lead)
 assert.equal(await val('select public.can_edit_document($1)', [hist]), false,
   'an imported Roast Me stays outside the editable set')

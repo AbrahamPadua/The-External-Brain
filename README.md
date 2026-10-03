@@ -1,4 +1,4 @@
-# The External Brain · Decoded Brain UCSD
+# The External Brain · Neuro Network UCSD
 
 React/TypeScript client for GitHub Pages and a Supabase PostgreSQL backend. Account approval is separate from email verification and initiative participation. New sign-ups remain pending until Operations or Research approves them.
 

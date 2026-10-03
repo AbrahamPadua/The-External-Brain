@@ -1,5 +1,5 @@
 /**
- * The External Brain - front-end dashboard for Decoded Brain at UC San Diego.
+ * The External Brain - front-end dashboard for Neuro Network at UC San Diego.
  *
  * App is a pure view over `data`. Every state change goes through
  * `onAction(action, payload)` which the host wires to either the local demo
@@ -120,7 +120,7 @@ import { DocumentImages } from './DocumentImages'
 import { Progress } from './Progress'
 import { ABSTRACT_MAX, canEditInitiative, initiativeAbstract, textToHtml } from './initiative-details'
 import { cleanImportedText } from './imported-title'
-import decodedBrainLogo from './assets/decoded-brain-logo.svg'
+import neuroNetworkLogo from './assets/neuro-network-logo.svg'
 import { readDarkTheme } from './theme'
 import NeuralBackground from './NeuralBackground'
 import { readProposal, sanitize } from './demo'
@@ -599,10 +599,10 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
           <Sidebar nav={nav} route={route} open={navOpen} onNavigate={onNavigate} />
         </div>
         <div className="ol-brand">
-          <img className="ol-brand-logo" src={decodedBrainLogo} width="34" height="34" alt="" />
+          <img className="ol-brand-logo" src={neuroNetworkLogo} width="34" height="34" alt="" />
           <span className="ol-brand-title">The External Brain</span>
           <span className="ol-brand-divider">/</span>
-          <span className="ol-brand-sub">Decoded Brain</span>
+          <span className="ol-brand-sub">Neuro Network</span>
         </div>
       </div>
       <div className="who">
@@ -2356,7 +2356,7 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Sign in to The External Brain</h1>
         <p className="muted">
-          Decoded Brain at UC San Diego. Members sign in through email - there is
+          Neuro Network at UC San Diego. Members sign in through email - there is
           no password to remember.
         </p>
       </div>
@@ -2655,7 +2655,7 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
-          Every Decoded Brain initiative at UC San Diego. Anyone can read this page.
+          Every Neuro Network initiative at UC San Diego. Anyone can read this page.
         </p>
       </div>
       <div className="catalog-toolbar">
@@ -2803,7 +2803,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
         <div className="hero">
           <h1>A shared workspace for student research.</h1>
           <p className="muted" style={{ maxWidth: '52ch' }}>
-            The External Brain is where Decoded Brain initiatives at UC San Diego publish their
+            The External Brain is where Neuro Network initiatives at UC San Diego publish their
             work, run weekly reporting, and give each other structured feedback.
           </p>
         </div>

@@ -476,7 +476,10 @@ function HpBar({ hp }: { hp: number }) {
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="field">
+    <label className="field" onClick={e=>{
+      if((e.target as HTMLElement).closest('.field-label'))
+        e.currentTarget.querySelector<HTMLElement>('[contenteditable="true"]')?.focus()
+    }}>
       <span className="field-label">{label}</span>
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
@@ -991,9 +994,9 @@ function InitiativeOverview({ ctx, ini, joinAction }: { ctx: Ctx; ini: Initiativ
     <section className="initiative-content-section" aria-label="Abstract">
       <h3>Abstract</h3>
       <div className="initiative-abstract">
-        {active ? <Editor  key="abstract-edit" body={abstractHtml} onChange={setAbstractHtml} readOnly={saving}
+        {active ? <Editor accessibleName="Project abstract" key="abstract-edit" body={abstractHtml} onChange={setAbstractHtml} readOnly={saving}
           uploadScopeId={`${ini.id}:abstract`} onUploadImage={upload} />
-          : <DocumentImages key={currentAbstract} bucket="initiative-content-images"><Editor  body={sanitize(currentAbstract, ABSTRACT_MAX)} readOnly /></DocumentImages>}
+          : <DocumentImages key={currentAbstract} bucket="initiative-content-images"><Editor accessibleName="Project abstract" body={sanitize(currentAbstract, ABSTRACT_MAX)} readOnly /></DocumentImages>}
       </div>
     </section>
     {ini.executionPlan ? <section className="initiative-content-section" aria-label="Execution plan">
@@ -1002,9 +1005,9 @@ function InitiativeOverview({ ctx, ini, joinAction }: { ctx: Ctx; ini: Initiativ
     </section> : null}
     {active || ini.motivation || ini.motivationHtml ? <section className="initiative-content-section" aria-label="Motivation">
       <h3>Motivation</h3>
-      {active ? <Editor  key="motivation-edit" body={motivationHtml} onChange={setMotivationHtml} readOnly={saving}
+      {active ? <Editor accessibleName="Project motivation" key="motivation-edit" body={motivationHtml} onChange={setMotivationHtml} readOnly={saving}
         uploadScopeId={`${ini.id}:motivation`} onUploadImage={upload} />
-        : <DocumentImages key={currentMotivation} bucket="initiative-content-images"><Editor  body={sanitize(currentMotivation, ABSTRACT_MAX)} readOnly /></DocumentImages>}
+        : <DocumentImages key={currentMotivation} bucket="initiative-content-images"><Editor accessibleName="Project motivation" body={sanitize(currentMotivation, ABSTRACT_MAX)} readOnly /></DocumentImages>}
     </section> : null}
     <div className="initiative-overview-actions">
       <div className="initiative-edit-action">
@@ -1131,7 +1134,15 @@ export function Modal({ titleId, onRequestClose, children, size }: {
   useEffect(()=>{
     const previous=document.activeElement as HTMLElement|null
     const focusable=()=>Array.from(panel.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href]')??[])
+      'button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),a[href],[contenteditable="true"],[role="document"][tabindex="0"]')??[]).filter(node=>{
+        let ancestor:HTMLElement|null=node
+        while(ancestor&&ancestor!==panel.current){
+          const style=getComputedStyle(ancestor)
+          if(ancestor.hidden||style.display==='none'||style.visibility==='hidden')return false
+          ancestor=ancestor.parentElement
+        }
+        return node.tabIndex>=0
+      })
     ;(panel.current?.querySelector<HTMLElement>('[autofocus]')??focusable()[0])?.focus()
     const key=(e:KeyboardEvent)=>{
       if(e.key==='Escape'){e.preventDefault();closeRef.current();return}
@@ -1230,10 +1241,10 @@ function TaskModal({ctx,ini,taskId,onClose}:{ctx:Ctx;ini:Initiative;taskId:strin
           nothing expiring and no base64 is persisted. */}
       <Field label="Description" hint={canManage?'Paste or upload PNG, JPEG, GIF or WebP images directly.':undefined}>
         {canManage
-          ?<Editor  body={description} onChange={(html)=>{setTouched(true);setDescription(html)}}
+          ?<Editor accessibleName="Task description" body={description} onChange={(html)=>{setTouched(true);setDescription(html)}}
             uploadScopeId={`task:${task.id}`}
             onUploadImage={(file)=>ctx.uploadTaskImage(task.id,ini.id,file)}/>
-          :<Editor  body={description} readOnly/>}
+          :<Editor accessibleName="Task description" body={description} readOnly/>}
       </Field>
       <Field label="Due date and time"><input type="datetime-local" value={due} disabled={!canManage||ctx.busy} onChange={e=>setDue(e.target.value)}/></Field>
       <Field label="Assigned to"><select value={assigneeId} disabled={!canManage||ctx.busy} onChange={e=>setAssigneeId(e.target.value)}>
@@ -1659,6 +1670,7 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
       </Field>
       <Field label={isRm ? 'Weekly update body' : 'Peer review body'} hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
         <Editor
+          accessibleName={isRm ? 'Weekly update body' : 'Peer review body'}
           body={body}
           onChange={(html) => change({body:html})}
           uploadScopeId={doc.id}
@@ -1731,7 +1743,7 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
             </div>
             {/* Read-only and pinned: the reference never becomes editable, and it
                 shows the assigned version even after a later revision. */}
-            <Editor  body={sanitize(reference.version.body)} readOnly />
+            <Editor accessibleName={`Source weekly update, version ${reference.version.version}`} body={sanitize(reference.version.body)} readOnly />
           </section>
         }
         right={draftBody}
@@ -2105,7 +2117,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
         {annotated
           ? <AnnotatedVersion ctx={ctx} doc={doc} version={shown?.version ?? doc.version}
               body={sanitize(shown?.body ?? doc.body)} threads={threads} />
-          : <Editor  body={sanitize(shown?.body ?? doc.body)} readOnly />}
+          : <Editor accessibleName={doc.kind === 'rm' ? 'Submitted weekly update' : 'Submitted peer review'} body={sanitize(shown?.body ?? doc.body)} readOnly />}
         </DocumentImages>
         {canRevise ? (
           <div className="btn-row" style={{ marginTop: 12 }}>
@@ -2242,7 +2254,7 @@ function ReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
         <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
           {/* Scoped to the snapshot's document, so an upload that finishes after
               the form moved on is discarded rather than inserted here. */}
-          <Editor  body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
+          <Editor accessibleName="Weekly update revision body" body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
             uploadScopeId={draft.docId}
             onUploadImage={(file) => ctx.uploadRmImage(draft.docId, doc.initiativeId, file)} />
         </Field>
@@ -3137,7 +3149,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                       injected, and inline images resolve from their object path. */}
                   {t.description
                     ? <div className="task-description">
-                        <Editor  body={sanitize(t.description)} readOnly />
+                        <Editor accessibleName="Task description" body={sanitize(t.description)} readOnly />
                       </div>
                     : null}
                   <div className="row field-hint">

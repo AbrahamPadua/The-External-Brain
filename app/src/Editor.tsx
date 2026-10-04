@@ -367,9 +367,10 @@ function applyLink(editor: TiptapEditor, href: string) {
 /* The editor ------------------------------------------------------------ */
 
 export function Editor({
-  body, onChange, readOnly=false, onUploadImage, uploadScopeId
+  body, onChange, readOnly=false, onUploadImage, uploadScopeId, accessibleName
 }: {
   body: string
+  accessibleName: string
   onChange?: (html: string) => void
   readOnly?: boolean
   onUploadImage?: (file: File) => Promise<{ path: string; url: string } | null>
@@ -400,6 +401,10 @@ export function Editor({
  const [urlPrompt, setUrlPrompt] = useState<null | 'link' | 'image'>(null)
  /** Whether the selection bubble is showing its link field instead of buttons. */
  const [bubbleLink, setBubbleLink] = useState(false)
+ const [moreOpen,setMoreOpen] = useState(false)
+ const moreButton=useRef<HTMLButtonElement>(null)
+ const moreCommands=useRef<HTMLDivElement>(null)
+ const moreSelection=useRef<{from:number;to:number}|null>(null)
 
  const insertUpload = async (file: File) => {
    const upload = uploadRef.current
@@ -488,6 +493,9 @@ export function Editor({
      onChangeRef.current?.(html)
    },
    editorProps: {
+     attributes: readOnly
+       ? {role:'document','aria-label':accessibleName,tabindex:'0'}
+       : {role:'textbox','aria-label':accessibleName,'aria-multiline':'true'},
      handlePaste: (_view, event) => applyTransfer(event.clipboardData, event),
      handleDrop: (view, event, _slice, moved) => {
        // Moving content that is already in the document is Tiptap's job.
@@ -499,6 +507,9 @@ export function Editor({
  })
  useEffect(()=>{editorRef.current=editor??null},[editor])
  useEffect(()=>{editor?.setEditable(!readOnly)},[editor,readOnly])
+ useEffect(()=>{editor?.setOptions({editorProps:{attributes:readOnly
+   ? {role:'document','aria-label':accessibleName,tabindex:'0'}
+   : {role:'textbox','aria-label':accessibleName,'aria-multiline':'true'}}})},[editor,readOnly,accessibleName])
  useEffect(()=>{if(editor&&readOnly)editor.commands.setContent(body)},[body,editor,readOnly])
 
  /* Slash menu state, driven by the suggestion plugin through the bridge. */
@@ -594,6 +605,15 @@ export function Editor({
   * dialog the dialog scrolls, so the CSS default of 0 applies there.
   */
  const rootRef = useRef<HTMLDivElement>(null)
+ useEffect(()=>{
+   if(!moreOpen)return
+   moreCommands.current?.querySelector<HTMLButtonElement>('button:not([disabled]):not([aria-label="Bold"]):not([aria-label="Italic"]):not([aria-label="Bulleted list"])')?.focus()
+   const outside=(event:PointerEvent)=>{
+     if(!moreCommands.current?.contains(event.target as Node)&&!moreButton.current?.contains(event.target as Node))setMoreOpen(false)
+   }
+   document.addEventListener('pointerdown',outside)
+   return ()=>document.removeEventListener('pointerdown',outside)
+ },[moreOpen])
  useEffect(() => {
    const root = rootRef.current
    if (readOnly || !root || root.closest('.modal-card')) return
@@ -613,7 +633,11 @@ export function Editor({
 
  const bubbleOptions = useMemo(() => ({ ...BUBBLE_OPTIONS, onHide: () => setBubbleLink(false) }), [])
 
- const chain = () => editor!.chain().focus()
+ const chain = () => {
+   const command=editor!.chain().focus()
+   if(moreOpen&&moreSelection.current)command.setTextSelection(moreSelection.current)
+   return command
+ }
  const closePrompt = () => { setUrlPrompt(null); editor?.commands.focus() }
 
  /**
@@ -634,19 +658,33 @@ export function Editor({
  /** An Escape that closed one of the editor's own menus must not also close
   *  the dialog the editor sits in (dialogs listen for Escape on document). */
  const containEscape = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+   if(e.key==='Escape'&&moreOpen){e.preventDefault();e.stopPropagation();setMoreOpen(false);moreButton.current?.focus();return}
    if (e.key === 'Escape' && e.defaultPrevented) e.stopPropagation()
  }
 
- return <div ref={rootRef} className={'editor '+(readOnly?'readonly':'')} onClick={stopLabelActivation} onKeyDown={containEscape}>
+ return <div ref={rootRef} className={'editor '+(readOnly?'readonly':'')+(moreOpen?' ed-more-open':'')} onClick={stopLabelActivation} onKeyDown={containEscape}>
  {/* Becomes the surrounding label's control: a click on the field's label text
      lands here and moves the caret into the editor instead of pressing the
      first toolbar button. Hidden, so it never takes focus itself. */}
  <input className="ed-label-sink" type="text" hidden tabIndex={-1} aria-hidden="true" readOnly
    onClick={() => { if (!readOnlyRef.current) editorRef.current?.commands.focus() }} />
  {!readOnly&&editor&&ui&&<div className="toolbar">
+   <div className="ed-mobile-primary" role="toolbar" aria-label="Primary formatting">
+     <BlockTypeSelect editor={editor} value={ui.block}/>
+     <ToolButton label="Bold" shortcut={`${MOD}+B`} icon={Bold} active={ui.bold} onClick={()=>chain().toggleBold().run()}/>
+     <ToolButton label="Italic" shortcut={`${MOD}+I`} icon={Italic} active={ui.italic} onClick={()=>chain().toggleItalic().run()}/>
+     <ToolButton label="Bulleted list" icon={List} active={ui.bullet} onClick={()=>chain().toggleBulletList().run()}/>
+     <button type="button" className="ed-btn has-text" ref={moreButton} aria-label="More formatting commands" aria-expanded={moreOpen}
+       onMouseDown={e=>e.preventDefault()} onClick={()=>{
+         if(!moreOpen)moreSelection.current={from:editor.state.selection.from,to:editor.state.selection.to}
+         setMoreOpen(!moreOpen)
+       }}>More</button>
+   </div>
    {/* Groups draw their own leading separator; the one that lands at the
        start of a wrapped row falls in the clipped gutter and is hidden. */}
-   <div className="ed-tb-clip"><div className="ed-tb-row" role="toolbar" aria-label="Formatting">
+   <div ref={moreCommands} className="ed-tb-clip ed-more-commands" onClick={e=>{
+     if(moreOpen&&(e.target as Element).closest('button'))setMoreOpen(false)
+   }}><div className="ed-tb-row" role="toolbar" aria-label={moreOpen ? 'More formatting commands' : 'Formatting'}>
    <div className="ed-group">
      <ToolButton label="Undo" shortcut={`${MOD}+Z`} icon={Undo2} disabled={!ui.canUndo} onClick={()=>chain().undo().run()}/>
      <ToolButton label="Redo" shortcut={`${MOD}+Shift+Z`} icon={Redo2} disabled={!ui.canRedo} onClick={()=>chain().redo().run()}/>

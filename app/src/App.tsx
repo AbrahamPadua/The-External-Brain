@@ -1,3 +1,4 @@
+import { obligationDocument, obligationWeek, isPublishedDocument } from './obligationPresentation'
 /**
  * The External Brain - front-end dashboard for Neuro Network at UC San Diego.
  *
@@ -235,6 +236,9 @@ function relDue(iso: string): string {
   return `${-days} day${days === -1 ? '' : 's'} overdue`
 }
 
+function statusLabel(status:string):string {
+  return ({on_hold:'On hold',changes_requested:'Changes requested',pending:'Pending',submitted:'Submitted',draft:'Draft',complete:'Complete',missed:'Missed',active:'Active',archived:'Archived',approved:'Approved',rejected:'Rejected',waived:'Waived'} as Record<string,string>)[status] ?? status.replaceAll('_',' ')
+}
 function statusTone(s: string): string {
   switch (s) {
     case 'active': case 'approved': case 'complete': case 'completed': case 'done': return 'good'
@@ -986,16 +990,20 @@ function InitiativeOverview({ ctx, ini, joinAction }: { ctx: Ctx; ini: Initiativ
     <section className="initiative-content-section" aria-label="Abstract">
       <h3>Abstract</h3>
       <div className="initiative-abstract">
-        {active ? <Editor key="abstract-edit" body={abstractHtml} onChange={setAbstractHtml} readOnly={saving}
+        {active ? <Editor  key="abstract-edit" body={abstractHtml} onChange={setAbstractHtml} readOnly={saving}
           uploadScopeId={`${ini.id}:abstract`} onUploadImage={upload} />
-          : <DocumentImages key={currentAbstract} bucket="initiative-content-images"><Editor body={sanitize(currentAbstract, ABSTRACT_MAX)} readOnly /></DocumentImages>}
+          : <DocumentImages key={currentAbstract} bucket="initiative-content-images"><Editor  body={sanitize(currentAbstract, ABSTRACT_MAX)} readOnly /></DocumentImages>}
       </div>
     </section>
+    {ini.executionPlan ? <section className="initiative-content-section" aria-label="Execution plan">
+      <h3>Execution plan</h3>
+      <div style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{ini.executionPlan}</div>
+    </section> : null}
     {active || ini.motivation || ini.motivationHtml ? <section className="initiative-content-section" aria-label="Motivation">
       <h3>Motivation</h3>
-      {active ? <Editor key="motivation-edit" body={motivationHtml} onChange={setMotivationHtml} readOnly={saving}
+      {active ? <Editor  key="motivation-edit" body={motivationHtml} onChange={setMotivationHtml} readOnly={saving}
         uploadScopeId={`${ini.id}:motivation`} onUploadImage={upload} />
-        : <DocumentImages key={currentMotivation} bucket="initiative-content-images"><Editor body={sanitize(currentMotivation, ABSTRACT_MAX)} readOnly /></DocumentImages>}
+        : <DocumentImages key={currentMotivation} bucket="initiative-content-images"><Editor  body={sanitize(currentMotivation, ABSTRACT_MAX)} readOnly /></DocumentImages>}
     </section> : null}
     <div className="initiative-overview-actions">
       <div className="initiative-edit-action">
@@ -1221,10 +1229,10 @@ function TaskModal({ctx,ini,taskId,onClose}:{ctx:Ctx;ini:Initiative;taskId:strin
           nothing expiring and no base64 is persisted. */}
       <Field label="Description" hint={canManage?'Paste or upload PNG, JPEG, GIF or WebP images directly.':undefined}>
         {canManage
-          ?<Editor body={description} onChange={(html)=>{setTouched(true);setDescription(html)}}
+          ?<Editor  body={description} onChange={(html)=>{setTouched(true);setDescription(html)}}
             uploadScopeId={`task:${task.id}`}
             onUploadImage={(file)=>ctx.uploadTaskImage(task.id,ini.id,file)}/>
-          :<Editor body={description} readOnly/>}
+          :<Editor  body={description} readOnly/>}
       </Field>
       <Field label="Due date and time"><input type="datetime-local" value={due} disabled={!canManage||ctx.busy} onChange={e=>setDue(e.target.value)}/></Field>
       <Field label="Assigned to"><select value={assigneeId} disabled={!canManage||ctx.busy} onChange={e=>setAssigneeId(e.target.value)}>
@@ -1768,8 +1776,9 @@ function StartRoastMe({ ctx, ini, onOpen }: { ctx: Ctx; ini: Initiative; onOpen:
           if (ok) setWaiting(true)
         }}
       >
-        <Plus size={15} /> {waiting?'Opening…':existing ? 'Open this week’s Roast Me' : 'Start Roast Me'}
+        <Plus size={15} /> {waiting?'Opening…':existing ? 'Open this week’s weekly update' : 'Start weekly update'}
       </button>
+      <span className="field-hint">Weekly update (Roast Me) · week of {monday}. {weekState(ctx,monday).note || 'Week open; the initiative lead submits.'}</span>
     </div>
   )
 }
@@ -2073,7 +2082,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
             <h3 style={{ marginBottom: 4 }}>{doc.title}</h3>
             <div className="row">
               <Pill tone="muted">{doc.kind === 'rm' ? 'Roast Me' : 'manual review'}</Pill>
-              <Pill tone={statusTone(doc.status)}>{doc.status}</Pill>
+              <Pill tone={statusTone(doc.status)}>{statusLabel(doc.status)}</Pill>
               <span className="muted">by {doc.authorName ?? ctx.personName(doc.authorId)}</span>
               <span className="muted">{documentDateLabel(doc)}</span>
             </div>
@@ -2108,7 +2117,7 @@ function SubmittedDoc({ ctx, doc, ini }: { ctx: Ctx; doc: DocumentRecord; ini: I
         {annotated
           ? <AnnotatedVersion ctx={ctx} doc={doc} version={shown?.version ?? doc.version}
               body={sanitize(shown?.body ?? doc.body)} threads={threads} />
-          : <Editor body={sanitize(shown?.body ?? doc.body)} readOnly />}
+          : <Editor  body={sanitize(shown?.body ?? doc.body)} readOnly />}
         </DocumentImages>
         {canRevise ? (
           <div className="btn-row" style={{ marginTop: 12 }}>
@@ -2245,7 +2254,7 @@ function ReviseRmForm({ ctx, doc }: { ctx: Ctx; doc: DocumentRecord }) {
         <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
           {/* Scoped to the snapshot's document, so an upload that finishes after
               the form moved on is discarded rather than inserted here. */}
-          <Editor body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
+          <Editor  body={body} onChange={(html) => patch({ body: html })} readOnly={conflict}
             uploadScopeId={draft.docId}
             onUploadImage={(file) => ctx.uploadRmImage(draft.docId, doc.initiativeId, file)} />
         </Field>
@@ -2589,14 +2598,14 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
           <div className="catalog-media-shade" aria-hidden="true" />
           <div className="catalog-badges">
             <span className="catalog-category-tag">{ini.category}</span>
-            <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+            <Pill tone={statusTone(ini.status)}>{statusLabel(ini.status)}</Pill>
           </div>
           <h3 className="catalog-card-title catalog-default-title">{ini.title}</h3>
         </div>
         <div className="catalog-overlay">
           <div className="catalog-overlay-badges" aria-hidden="true">
             <span className="catalog-category-tag">{ini.category}</span>
-            <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+            <Pill tone={statusTone(ini.status)}>{statusLabel(ini.status)}</Pill>
           </div>
           <div className="catalog-overlay-content">
             <strong className="catalog-overlay-title" aria-hidden="true">{ini.title}</strong>
@@ -2732,51 +2741,45 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
   const ini = ctx.data.initiatives.find((i) => i.id === ob.initiativeId)
   const targetDoc = ob.targetId ? ctx.data.documents.find((d) => d.id === ob.targetId) : null
   const reviewedIni = targetDoc ? ctx.data.initiatives.find((i) => i.id === targetDoc.initiativeId) : null
-  // The obligation's deadline sits inside the week it belongs to, so its LA
-  // Monday is the week a draft has to be pointed at to satisfy it.
-  const week = losAngelesMonday(new Date(ob.due))
-  const draft = ctx.data.documents.find((d) =>
-    d.status === 'draft' && d.kind === ob.kind &&
-    (ob.kind === 'rm'
-      // A Roast Me draft belongs to the whole team, whoever started it.
-      ? d.initiativeId === ob.initiativeId && (d.targetMonday ?? week) === week
-      : d.targetId === ob.targetId && d.authorId === ctx.userId),
-  )
-  const submitted = ctx.data.documents.find((d) =>
-    d.status !== 'draft' && d.kind === ob.kind &&
-    (ob.kind === 'rm' ? d.initiativeId === ob.initiativeId : d.targetId === ob.targetId) &&
-    (ob.kind === 'rm' ? true : d.authorId === ctx.userId),
-  )
+  const week = obligationWeek(ob, ctx.mode === 'demo')
+  const matched = obligationDocument(ob, ctx.data.documents, ctx.mode === 'demo')
+  const submitted = matched && isPublishedDocument(matched) ? matched : undefined
+  const draft = matched?.status === 'draft' ? matched : undefined
   const overdue = relDue(ob.due).includes('overdue')
+  const waitingReview = ob.kind === 'review' && (!ob.targetId || !targetDoc || !reviewedIni)
+  const assignmentMessage = !ob.targetId ? 'Waiting for Research to assign a report' : 'Assigned report unavailable. Ask Research to check this assignment.'
   return (
     <div className="thread">
       <div className="between">
         <div>
           <strong>
             {ob.kind === 'rm'
-              ? `Roast Me - ${ini?.title ?? 'initiative'}`
-              : `Review of ${targetDoc?.title ?? 'a memo'}${reviewedIni ? ` (${reviewedIni.title})` : ''}`}
+              ? `Weekly update (Roast Me) - ${ini?.title ?? 'initiative'}`
+              : `Peer review${targetDoc ? ` of ${targetDoc.title}` : ''}${reviewedIni ? ` (${reviewedIni.title})` : ''}`}
           </strong>
           <div className="msg-meta">
-            <Pill tone={statusTone(ob.status)}>{ob.status}</Pill>
-            <span className={overdue ? 'pill bad' : ''}>{relDue(ob.due)}</span>
+            {waitingReview ? <span>{assignmentMessage}. Next: Research.</span> : <Pill tone={submitted ? 'good' : statusTone(ob.status)}>{submitted ? ob.status === 'complete' ? 'Submitted' : `Report submitted; obligation status ${ob.status}` : draft ? 'Draft in progress' : ob.status === 'complete' ? 'Obligation complete; report unavailable' : 'Not submitted'}</Pill>}
+            {ob.kind === 'rm' ? <span>{week ? `Reporting week of ${fmtDate(`${week}T12:00:00Z`)}` : 'Reporting week unavailable'}</span> : null}
+            {submitted && draft ? <span>Revision draft in progress</span> : null}
+            <span className={!waitingReview && overdue ? 'pill bad' : ''}>{waitingReview ? `Scheduled deadline: ${fmtDateTime(ob.due)}; writing starts after assignment.` : relDue(ob.due)}</span>
+            {!waitingReview && ob.kind === 'review' && targetDoc ? <a href={`#/document/${targetDoc.id}`}>Read assigned report (version {ob.targetVersion ?? targetDoc.version})</a> : null}
           </div>
         </div>
         <div className="btn-row">
-          {submitted ? (
-            <a className="btn ghost sm" href={`#/document/${submitted.id}`}><CheckCheck size={15} /> Submitted</a>
+          {waitingReview ? null : submitted ? (
+            <a className="btn ghost sm" href={`#/document/${submitted.id}`}><CheckCheck size={15} /> {ob.kind === 'rm' ? 'View this week’s submitted report' : 'View submitted review'}</a>
           ) : draft ? (
-            <a className="btn sm" href={`#/document/${draft.id}`}>Open draft</a>
+            <a className="btn sm" href={`#/document/${draft.id}`}>{ob.kind === 'rm' ? 'Open this week’s draft' : 'Open draft'}</a>
           ) : (
             <button
               className="btn sm"
-              disabled={ctx.busy}
+              disabled={ctx.busy || (ob.kind === 'rm' && !week)}
               onClick={async () => {
                 const ok = ob.kind === 'rm'
                   ? await ctx.run('createDraft',
                     { initiativeId: ob.initiativeId, kind: 'rm', targetMonday: week }, 'Draft started.')
                   : await ctx.run('createDraft',
-                    { initiativeId: reviewedIni?.id, kind: 'review', targetId: ob.targetId }, 'Draft started.')
+                    { initiativeId: reviewedIni?.id, kind: 'review', obligationId: ob.id, targetId: ob.targetId, targetVersion: ob.targetVersion }, 'Draft started.')
                 if (ok && ini) {
                   go(ob.kind === 'rm'
                     ? `#/initiative/${ob.initiativeId}/progress`
@@ -2784,7 +2787,7 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
                 }
               }}
             >
-              Start draft
+              {ob.kind === 'rm' ? 'Start this week’s draft' : 'Start draft'}
             </button>
           )}
         </div>
@@ -2845,7 +2848,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
               <div className="card" key={r.id}>
                 <div className="between">
                   <strong>{r.title}</strong>
-                  <Pill tone={statusTone(r.status)}>{r.status}</Pill>
+                  <Pill tone={statusTone(r.status)}>{statusLabel(r.status)}</Pill>
                 </div>
                 {r.feedback ? <p className="muted">{r.feedback}</p> : null}
               </div>
@@ -2857,7 +2860,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
   }
 
   const myObligations = data.obligations.filter((o) =>
-    o.assigneeId === userId && (o.status === 'pending' || o.status === 'missed'))
+    o.assigneeId === userId && (o.status === 'pending' || o.status === 'missed' ||
+      (o.status === 'complete' && obligationWeek(o,ctx.mode==='demo')===losAngelesMonday())))
   const myRm = myObligations.filter((o) => o.kind === 'rm')
   const myReviews = myObligations.filter((o) => o.kind === 'review')
   const myInitiatives = initiativesFor(data, userId)
@@ -2901,14 +2905,13 @@ function PageHome({ ctx }: { ctx: Ctx }) {
     decisions.push(<li key="r"><a href="#/assignments">{unreviewedRm.length} memo(s) need a reviewer</a></li>)
   }
   const proposalQueue = ctx.isResearch ? pendingProposals : []
-  const nothingPending = !myRm.length && !myReviews.length && !decisions.length && !proposalQueue.length
 
   return (
     <div className="dashboard">
       <section className="dashboard-section dashboard-welcome">
         <span className="dashboard-eyebrow">MEMBER WORKSPACE</span>
         <h1>Welcome, {nameOf(me).split(' ')[0]}</h1>
-        <p className="muted">Here is what is waiting on you this week.</p>
+        <p className="muted">Here is what is waiting on you this week. An initiative is a project your team works on together.</p>
       </section>
 
       <section className="dashboard-section dashboard-nudge">
@@ -2917,7 +2920,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
 
       <section className="dashboard-section dashboard-rm" aria-labelledby="rm-heading">
         <header className="dashboard-section-header">
-          <h2 id="rm-heading"><Inbox size={18} /> Your Roast Mes</h2>
+          <h2 id="rm-heading"><Inbox size={18} /> Your weekly updates (Roast Me)</h2>
           <span className="dashboard-badge">{myRm.length}</span>
         </header>
         {myRm.length ? (
@@ -2929,7 +2932,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
             ))}
           </div>
         ) : (
-          <Empty>No Roast Me due right now. You can still start one from your initiative’s Progress tab.</Empty>
+          <Empty>No weekly update due right now. You can still draft from your initiative’s Progress tab.</Empty>
         )}
       </section>
 
@@ -2971,16 +2974,16 @@ function PageHome({ ctx }: { ctx: Ctx }) {
         </section>
       ) : null}
 
-      {nothingPending ? (
+      {(
         <section className="dashboard-section dashboard-proposals" aria-labelledby="proposals-heading">
           <header className="dashboard-section-header">
-            <h2 id="proposals-heading"><Sparkles size={18} /> Proposals</h2>
-            <a className="btn sm" href="#/new-proposal"><Plus size={15} /> New proposal</a>
+            <h2 id="proposals-heading"><Sparkles size={18} /> My proposals</h2>
+            <a className="btn sm" href="#/new-proposal"><Plus size={15} /> Propose a project</a>
           </header>
-          <p className="muted">Nothing is waiting on you. Have an idea for a new initiative?</p>
+          <p className="muted">Have an idea for a new initiative (a project)? Save a draft or send it to Research for approval.</p>
           <MyProposals mine={myProposals} />
         </section>
-      ) : null}
+      )}
 
       {openThreads.length ? (
         <section className="dashboard-section dashboard-threads" aria-labelledby="threads-heading">
@@ -3009,6 +3012,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
           <h2 id="initiatives-heading"><FlaskConical size={18} /> Your initiatives</h2>
           <span className="dashboard-badge">{homeInitiatives.length}</span>
         </header>
+        <p className="field-hint">HP means health points associated with reporting obligations. Missed deadlines deduct points; first assigned submissions earn the configured reward and reverse any recorded missed penalty. Research can adjust HP with a reason. HP tracks reporting, not scientific quality.</p>
         {homeInitiatives.length ? (
           <div className="catalog-grid dashboard-initiatives-grid">
             {homeInitiatives.map((i) => (
@@ -3048,9 +3052,9 @@ function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClo
         <button className="btn ghost sm icon-btn" onClick={requestClose} aria-label="Close" title="Close"><X size={16}/></button></div></div>
     {editing
       ? <DraftEditor ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose} showReference={referenceShown}/>
-      : doc.status==='draft'
+      : doc.status==='draft' && !isPublishedDocument(doc)
         ? <p className="muted">This document is still a private draft.</p>
-        : <SubmittedDoc key={doc.id} ctx={ctx} doc={doc} ini={ini}/>}
+        : <SubmittedDoc key={doc.id} ctx={ctx} doc={doc.status==='draft'?{...doc,status:'submitted',body:doc.versions.at(-1)?.body??''}:doc} ini={ini}/>}
   </Modal>
 }
 
@@ -3098,7 +3102,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <p className="muted"><a href="#/catalog"><ArrowLeft size={13} /> Catalog</a></p>
         <div className="between">
           <h1 style={{ marginBottom: 6 }}>{ini.title}</h1>
-          <Pill tone={statusTone(ini.status)}>{ini.status}</Pill>
+          <Pill tone={statusTone(ini.status)}>{statusLabel(ini.status)}</Pill>
         </div>
         <div className="row">
           <Pill>{ini.category}</Pill>
@@ -3145,7 +3149,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                       injected, and inline images resolve from their object path. */}
                   {t.description
                     ? <div className="task-description">
-                        <Editor body={sanitize(t.description)} readOnly />
+                        <Editor  body={sanitize(t.description)} readOnly />
                       </div>
                     : null}
                   <div className="row field-hint">
@@ -3153,7 +3157,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
                     {t.dueAt ? <span>Due {fmtDateTime(t.dueAt)}</span> : null}
                   </div>
                 </div>
-                <Pill tone={t.status==='finished'?'good':t.status==='pending'?'warn':'muted'}>{t.status}</Pill>
+                <Pill tone={t.status==='finished'?'good':t.status==='pending'?'warn':'muted'}>{statusLabel(t.status)}</Pill>
                 <button className="btn ghost sm" onClick={()=>setTaskModalId(t.id)}>Open task</button>
               </div>
             )) : <Empty>No tasks yet.</Empty>}
@@ -3289,6 +3293,7 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
     const canEdit = doc.authorId === ctx.userId ||
       (doc.kind === 'rm' && !!ctx.userId && ini.members.includes(ctx.userId))
     if (!canEdit) {
+      if(isPublishedDocument(doc))return <><p className="field-hint">A revision draft is in progress. Showing the submitted version.</p><SubmittedDoc ctx={ctx} doc={{...doc,status:'submitted',body:doc.versions.at(-1)?.body??''}} ini={ini}/></>
       return <div className="card"><h3>{doc.title}</h3><p className="muted">This document is still a draft.</p></div>
     }
     return (
@@ -3349,7 +3354,7 @@ function ProposalQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
   )
 }
 
-/** The member's own proposals, shown on Home only when nothing else is pending. */
+/** The member's own proposals remain reachable alongside other obligations. */
 function MyProposals({ mine }: { mine: Request[] }) {
   return mine.length ? (
     <div className="dashboard-list">
@@ -3363,17 +3368,20 @@ function MyProposals({ mine }: { mine: Request[] }) {
                 <strong>{r.title}</strong>{' '}
                 <Pill>{category}</Pill>
               </div>
-              <Pill tone={statusTone(r.status)}>{r.status}</Pill>
+              <Pill tone={statusTone(r.status)}>{({draft:'Draft',submitted:'Waiting for Research',changes_requested:'Changes requested',approved:'Approved',rejected:'Rejected'} as Record<string,string>)[r.status] ?? r.status}</Pill>
             </div>
             <p className="muted" style={{ marginTop: 6 }}>{abstract}</p>
             {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
             {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
             {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
+            <p className="muted">{r.status === 'submitted' ? 'Next: Research will review this proposal. Your submitted content is shown above.' : editable ? 'Next: you can continue writing and submit to Research.' : r.status === 'approved' ? 'Next: open your project and begin work.' : 'You can use the decision feedback to propose another project.'}</p>
             {editable ? (
               <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
-                {r.status === 'draft' ? 'Continue draft' : 'Revise & resubmit'}
+                {r.status === 'draft' ? 'Continue draft' : 'Revise and resubmit'}
               </a>
             ) : null}
+            {r.status === 'approved' && r.initiativeId ? <a className="btn sm" href={`#/initiative/${r.initiativeId}`}>Open project</a> : null}
+            {r.status === 'rejected' ? <a className="btn ghost sm" href="#/new-proposal">Propose another project</a> : null}
           </div>
         )
       })}
@@ -3608,7 +3616,7 @@ function PageAssignments({ ctx }: { ctx: Ctx }) {
                 <ul>
                   {existing.map((o) => (
                     <li key={o.id}>
-                      {ctx.personName(o.assigneeId)} - <Pill tone={statusTone(o.status)}>{o.status}</Pill>
+                      {ctx.personName(o.assigneeId)} - <Pill tone={statusTone(o.status)}>{statusLabel(o.status)}</Pill>
                       {' '}<span className="muted">{relDue(o.due)}</span>
                     </li>
                   ))}
@@ -3633,7 +3641,7 @@ function PageAssignments({ ctx }: { ctx: Ctx }) {
                 <tr key={o.id}>
                   <td>{target?.title ?? '-'}</td>
                   <td>{ctx.personName(o.assigneeId)}</td>
-                  <td><Pill tone={statusTone(o.status)}>{o.status}</Pill></td>
+                  <td><Pill tone={statusTone(o.status)}>{statusLabel(o.status)}</Pill></td>
                   <td>{fmtDate(o.due)}</td>
                 </tr>
               )
@@ -3668,7 +3676,7 @@ function PageHealth({ ctx }: { ctx: Ctx }) {
               <tr key={i.id}>
                 <td><a href={`#/initiative/${i.id}/overview`}>{i.title}</a></td>
                 <td>{leadDisplay(ctx, i)}</td>
-                <td><Pill tone={statusTone(i.status)}>{i.status}</Pill></td>
+                <td><Pill tone={statusTone(i.status)}>{statusLabel(i.status)}</Pill></td>
                 <td>
                   <HpBar hp={i.hp} />
                   {i.hp === 0 ? (
@@ -3756,7 +3764,7 @@ function PageNotifications({ ctx }: { ctx: Ctx }) {
       body = p.approved ? 'Your request to join the initiative was approved.' : 'Your request to join the initiative was declined.'
     } else if (n.kind === 'proposal_decided') {
       title = 'Proposal decided'
-      body = `Your proposal is now ${p.status}.`
+      body = `Your proposal is now ${statusLabel(p.status)}.`
     } else if (n.kind === 'review_assigned') {
       title = 'Review assigned'
       const obl = ctx.data.obligations.find(o => o.id === p.obligation_id)

@@ -13,33 +13,36 @@ export function Progress({ initiativeId, documents, people, currentCycle, startR
 }) {
   const [sort, setSort] = useState<ProgressSort>('newest')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const {groups, otherReviews, totalRms, totalReviews} = groupProgress(initiativeId, documents, sort)
+  const {groups, otherReviews, otherReviewDrafts, totalRms, totalReviews} = groupProgress(initiativeId, documents, sort)
   const openLink = (event: MouseEvent<HTMLAnchorElement>, id: string) => {
     if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); onOpen(id) }
   }
   const reviewCard = (review: DocumentRecord) => {
     const author = review.authorName || people.find(p => p.id === review.authorId)?.name || 'Author unavailable'
+    const published=[...review.versions].sort((a,b)=>b.version-a.version)[0]
+    const excerpt=textOfHtml(published?.body ?? (review.status==='draft' ? '' : review.body)).replace(/\s+/g,' ').trim()
     return <article key={review.id} className="progress-review">
-      <div className="progress-review-heading"><div><strong>{author}</strong><span className="progress-status">{review.status}</span></div>
+      <div className="progress-review-heading"><div><strong>{author}</strong><span className="progress-status">Submitted{review.status==='draft' ? ' · revision draft in progress' : ''}</span></div>
         <a href={`#/document/${review.id}`} onClick={e => openLink(e, review.id)}>View full review →</a></div>
       <p>{review.title}</p>
-      <p className="progress-review-excerpt">{textOfHtml(review.body).replace(/\s+/g, ' ').trim().slice(0, 240)}{textOfHtml(review.body).length > 240 ? '...' : ''}</p>
+      <p className="progress-review-excerpt">{excerpt ? excerpt.slice(0,240)+(excerpt.length>240?'...':'') : 'Published feedback snapshot unavailable.'}</p>
       <span className="field-hint">{review.sourceDate || review.sourcePeriod || (review.submittedAt ? new Date(review.submittedAt).toLocaleDateString() : 'Not submitted')}</span>
     </article>
   }
+  const draftLinks=(drafts:DocumentRecord[]) => <div className="progress-review-drafts"><strong>Review drafts</strong>{drafts.map(d=><a key={d.id} href={`#/document/${d.id}`} onClick={e=>openLink(e,d.id)}>{d.title} — {d.versions.length || d.submittedAt ? 'Open revision draft' : 'Open review draft'}</a>)}</div>
   return <div className="progress-workspace">
     <div className="progress-toolbar"><div className="row"><h2>Progress</h2><span className="progress-caption">RMs and peer reviews</span></div>
       <div className="row"><select aria-label="Sort progress" value={sort} onChange={e => setSort(e.target.value as ProgressSort)}>
         <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
         <option value="reviewed">Most reviewed</option><option value="awaiting">Awaiting review</option>
       </select>{startRm}</div></div>
-    <div className="progress-columns" aria-hidden="true"><span>Roast Me</span><span>Status</span><span>Reviews / Actions</span></div>
+    <div className="progress-columns" aria-hidden="true"><span>Weekly update (Roast Me)</span><span>Status</span><span>Reviews / Actions</span></div>
     <div className="progress-feed">
       {groups.map(group => <section key={group.key} className="progress-cycle" aria-label={group.label}>
         <header className="progress-cycle-heading"><div className="row"><CalendarDays size={19} /><h3>{group.label}</h3>
           {group.monday === currentCycle ? <span className="progress-current">Current cycle</span> : null}</div>
           <span className="progress-counts">{group.entries.length} {group.entries.length === 1 ? 'RM' : 'RMs'} · {group.entries.reduce((n,e) => n + e.reviews.length, 0)} reviews</span></header>
-        {group.entries.map(({rm,reviews}) => {
+        {group.entries.map(({rm,reviews,reviewDrafts}) => {
           const reason = roastReason(rm)
           const isOpen = expanded.has(rm.id)
           return <article key={rm.id} className="progress-rm">
@@ -55,20 +58,22 @@ export function Progress({ initiativeId, documents, people, currentCycle, startR
                   <MessageSquare size={15} /> Reviews ({reviews.length})<ChevronDown size={16} className={isOpen ? 'progress-chevron-open' : ''} />
                 </button> : null}
                 <button type="button" className="btn sm progress-roast" disabled={busy || !!reason}
-                  title={reason || 'Write a review for this RM'} onClick={() => onRoast(rm)}>
+                  title={reason || 'Write constructive feedback on this weekly update'} onClick={() => onRoast(rm)}>
                   <svg className="roast-flame" viewBox="0 0 32 40" width="20" height="24" aria-hidden="true" focusable="false">
                     <path className="roast-flame-outer" fill="#ff9800" d="M15 1C14 8 12 14 8 18C7 14 6 11 5 10C5 19 0 23 1 29C2 36 8 40 16 40C25 40 31 34 31 27C31 19 27 12 24 7C25 12 24 15 23 16C21 10 19 5 15 1Z" />
                     <path className="roast-flame-core" fill="#ffdb00" d="M16 23C15 28 14 31 12 33C12 30 11 28 11 28C10 33 8 35 10 38C11 40 14 40 16 40C21 40 23 37 22 34C21 30 20 28 19 27C20 30 19 31 19 31C18 27 17 25 16 23Z" />
-                  </svg> Roast</button>
+                  </svg> Write peer review (Roast)</button>
               </div>
             </div>
             {reviews.length && isOpen ? <div id={`reviews-${rm.id}`} className="progress-reviews">{reviews.map(reviewCard)}</div> : null}
+            {reviewDrafts.length ? draftLinks(reviewDrafts) : null}
           </article>
         })}
       </section>)}
       {!groups.length ? <p className="muted">{sort === 'awaiting' ? 'No submitted RMs are awaiting review.' : 'No Roast Mes yet.'}</p> : null}
     </div>
     {otherReviews.length ? <section className="progress-other-reviews"><h3>Other reviews</h3><p className="muted">Reviews for other initiatives or without an available RM.</p>{otherReviews.map(reviewCard)}</section> : null}
+    {otherReviewDrafts.length ? draftLinks(otherReviewDrafts) : null}
     <footer className="progress-footer">{totalRms} Roast Mes · {totalReviews} linked peer reviews</footer>
   </div>
 }

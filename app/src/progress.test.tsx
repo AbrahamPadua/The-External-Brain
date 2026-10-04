@@ -26,6 +26,23 @@ it('groups RMs by week and nests cross-initiative reviews only under their actua
   expect(groupProgress('i', documents, 'awaiting').groups.flatMap(g => g.entries.map(e => e.rm.id))).not.toContain('rm1')
 })
 
+it('counts only published feedback in totals and ranking, keeping fresh and revision drafts recoverable',async()=>{
+  const fresh=doc('draft',{kind:'review',targetId:'rm2',status:'draft',body:'<p>Unsubmitted text</p>'})
+  const revision=doc('revision',{kind:'review',targetId:'rm1',status:'draft',body:'<p>Private newer edits</p>',versions:[{version:1,body:'<p>Published feedback</p>',at:'2026-09-21'}]})
+  const docs=[...documents.filter(d=>d.id!=='review'),fresh,revision]
+  const result=groupProgress('i',docs,'reviewed')
+  expect(result.totalReviews).toBe(1)
+  expect(result.groups[0].entries[0].rm.id).toBe('rm1')
+  expect(result.groups[0].entries.find(e=>e.rm.id==='rm2')?.reviews).toHaveLength(0)
+  expect(groupProgress('i',docs,'awaiting').groups.flatMap(g=>g.entries.map(e=>e.rm.id))).toContain('rm2')
+  await mount(<Progress initiativeId="i" documents={docs} people={[]} startRm={null} onOpen={()=>{}} onRoast={()=>{}} roastReason={()=>''} busy={false}/>)
+  expect(host.textContent).toContain('Open review draft')
+  expect(host.textContent).toContain('Open revision draft')
+  await act(async()=>[...host.querySelectorAll('button')].find(b=>b.textContent?.includes('Reviews (1)'))!.click())
+  expect(host.querySelector('.progress-reviews')?.textContent).toContain('Published feedback')
+  expect(host.querySelector('.progress-reviews')?.textContent).not.toContain('Private newer edits')
+})
+
 let root: ReturnType<typeof createRoot> | undefined
 let host: HTMLDivElement
 Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT:true})

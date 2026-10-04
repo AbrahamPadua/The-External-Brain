@@ -12,6 +12,22 @@ let host: HTMLDivElement
 const settle = () => new Promise(resolve => setTimeout(resolve, 30))
 afterEach(async () => { if (root) await act(async () => root!.unmount()); root = undefined; host?.remove(); vi.restoreAllMocks() })
 
+it('approval keeps distinct abstract and execution plan under their own headings',async()=>{
+  const data=structuredClone(seed)
+  data.requests.push({id:'distinct',kind:'proposal',userId:'alex',title:'Distinct project',status:'submitted',body:JSON.stringify({abstract:'The actual abstract about perception.',plan:'A separate plan.\n\nSecond milestone.',motivation:Array(151).fill('reason').join(' '),category:'Research'})})
+  const approved=await demoAction(data,'maya','decideProposal',{requestId:'distinct',decision:'approved'})
+  const request=approved.requests.find(r=>r.id==='distinct')!
+  const ini=approved.initiatives.find(i=>i.id===request.initiativeId)!
+  expect(ini.overviewHtml).toBe('');expect(ini.abstract).toBe('The actual abstract about perception.')
+  expect((await demoAction(approved,'maya','decideProposal',{requestId:'distinct',decision:'approved'})).initiatives).toHaveLength(approved.initiatives.length)
+  window.location.hash=`#/initiative/${ini.id}`
+  host=document.createElement('div');document.body.append(host);root=createRoot(host)
+  await act(async()=>{root!.render(<App data={approved} userId="alex" mode="demo" onAction={async()=>{}} onSignIn={async()=>{}} onSignOut={async()=>{}}/>);await settle()})
+  expect(host.querySelector('section[aria-label="Abstract"]')?.textContent).toContain(ini.abstract)
+  expect(host.querySelector('section[aria-label="Abstract"]')?.textContent).not.toContain('milestone')
+  expect(host.querySelector('section[aria-label="Execution plan"]')?.textContent).toContain('Second milestone.')
+})
+
 it('edits in place, uploads into the abstract and keeps bottom actions and cover controls positioned', async () => {
   const data = structuredClone(seed)
   const ini = data.initiatives[0]

@@ -1,3 +1,4 @@
+import { assignedReviewObligation } from './obligationPresentation'
 import { ABSTRACT_MAX, canEditInitiative, initiativeAbstract } from './initiative-details'
 import { cleanImportedText } from './imported-title'
 /**
@@ -273,6 +274,7 @@ const handlers: Record<string, Handler> = {
       d.requests.find((r) => r.id === p.requestId && r.kind === 'proposal'),
       'Proposal not found.',
     )
+    if (req.status === 'approved' && p.decision === 'approved') return
     if (req.status !== 'submitted') deny('That proposal is not awaiting review.')
     const decision =
       p.decision === 'approved' ? 'approved'
@@ -299,11 +301,13 @@ const handlers: Record<string, Handler> = {
         status: 'active',
         category,
         motivation,
-        overviewHtml: plan,
+        overviewHtml: '',
+        executionPlan: plan,
         hp: HP_START,
         tasks: [],
       }
       d.initiatives.unshift(initiative)
+      req.initiativeId = initiative.id
       d.obligations.push({
         id: uid(),
         initiativeId: initiative.id,
@@ -458,11 +462,8 @@ const handlers: Record<string, Handler> = {
       if (targetIni && (targetIni.members.includes(me.id) || targetIni.leadId === me.id)) {
         deny('Manual reviews exclude your own initiative.')
       }
-      const assigned = d.obligations.some((o) =>
-        o.kind === 'review' && o.assigneeId === me.id && o.targetId === p.targetId &&
-        o.status !== 'complete' && o.status !== 'waived',
-      )
-      if (!assigned) deny('You have not been assigned this review.')
+      assignedReviewObligation(d.obligations, me.id, p.targetId,
+        p.targetVersion ?? target.version, p.obligationId)
     }
     // A Roast Me draft needs no cycle; it just names the week it is meant for.
     const targetMonday = kind === 'rm'
@@ -476,7 +477,7 @@ const handlers: Record<string, Handler> = {
     }
     const open = d.documents.find((doc) =>
       doc.initiativeId === ini.id && doc.kind === kind && doc.status === 'draft' &&
-      (kind === 'rm' ? doc.targetMonday === targetMonday : doc.targetId === p.targetId) &&
+      (kind === 'rm' ? doc.targetMonday === targetMonday : doc.targetId === p.targetId && doc.targetVersion === (p.targetVersion ?? d.documents.find(x=>x.id===p.targetId)?.version)) &&
       (doc.authorId === me.id || (kind === 'rm' && ini.members.includes(me.id))),
     )
     if (open) return // reuse the team's existing draft for this week
@@ -491,6 +492,8 @@ const handlers: Record<string, Handler> = {
       body: kind === 'rm' ? RM_TEMPLATE : REVIEW_TEMPLATE,
       version: 1,
       targetId: kind === 'review' ? p.targetId : undefined,
+      targetVersion: kind === 'review' ? p.targetVersion ?? d.documents.find(x=>x.id===p.targetId)?.version : undefined,
+      obligationId: kind === 'review' ? assignedReviewObligation(d.obligations, me.id, p.targetId, p.targetVersion ?? d.documents.find(x=>x.id===p.targetId)?.version, p.obligationId).id : undefined,
       targetMonday,
       versions: [],
     }
@@ -555,8 +558,8 @@ const handlers: Record<string, Handler> = {
         o.kind === doc.kind && o.assigneeId === assigneeId &&
         o.status !== 'complete' && o.status !== 'waived' &&
         (doc.kind === 'rm'
-          ? o.initiativeId === ini.id && losAngelesMonday(new Date(o.due)) === doc.targetMonday
-          : o.targetId === doc.targetId),
+          ? o.initiativeId === ini.id && (o.cycleMonday ?? losAngelesMonday(new Date(o.due))) === doc.targetMonday
+          : o.id === doc.obligationId && o.targetId === doc.targetId && o.targetVersion === doc.targetVersion),
       )
       if (obl) {
         if (doc.kind === 'rm') doc.obligationId = obl.id
@@ -927,6 +930,7 @@ const handlers: Record<string, Handler> = {
     // override changes it.
     obl.due = typeof p.due === 'string' && p.due ? new Date(p.due).toISOString() : obl.due
     obl.targetId = target.id
+    obl.targetVersion = target.version
     obl.status = 'pending'
     audit(d, me, 'review.assign',
       `Pointed ${reviewer.name}'s review obligation at "${target.title}" (due ${obl.due.slice(0, 10)})`)
@@ -1099,6 +1103,7 @@ const handlers: Record<string, Handler> = {
             initiativeId: ini.id,
             assigneeId: lead.id,
             kind: 'rm',
+            cycleMonday: bounds.cycleId,
             due: bounds.losAngelesDeadline.toISOString(),
             status: 'pending'
           })
@@ -1111,6 +1116,7 @@ const handlers: Record<string, Handler> = {
             initiativeId: ini.id,
             assigneeId: lead.id,
             kind: 'review',
+            cycleMonday: bounds.cycleId,
             due: bounds.reviewDeadline.toISOString(),
             status: 'pending'
           })

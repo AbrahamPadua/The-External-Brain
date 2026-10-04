@@ -1,8 +1,9 @@
 import type { DocumentRecord } from './model'
 import { losAngelesMonday } from './domain'
+import { isPublishedDocument } from './obligationPresentation'
 
 export type ProgressSort = 'newest' | 'oldest' | 'reviewed' | 'awaiting'
-export type ProgressEntry = { rm: DocumentRecord; reviews: DocumentRecord[] }
+export type ProgressEntry = { rm: DocumentRecord; reviews: DocumentRecord[]; reviewDrafts: DocumentRecord[] }
 export type ProgressGroup = { key: string; label: string; monday?: string; order: number; entries: ProgressEntry[] }
 
 export function progressPeriod(doc: DocumentRecord): Omit<ProgressGroup, 'entries'> {
@@ -21,16 +22,18 @@ export function groupProgress(initiativeId: string, documents: DocumentRecord[],
   const ids = new Set(rms.map(d => d.id))
   const groups = new Map<string, ProgressGroup>()
   for (const rm of rms) {
-    const reviews = documents.filter(d => d.kind === 'review' && d.targetId === rm.id)
+    const linked = documents.filter(d => d.kind === 'review' && d.targetId === rm.id)
+    const reviewDrafts = linked.filter(d=>d.status==='draft')
+    const reviews = linked.filter(isPublishedDocument)
       .sort((a,b) => (b.submittedAt || b.sourceDate || '').localeCompare(a.submittedAt || a.sourceDate || '') || a.title.localeCompare(b.title))
-    if (sort === 'awaiting' && (reviews.some(r => r.status !== 'draft') || rm.status === 'draft')) continue
+    if (sort === 'awaiting' && (reviews.length || !isPublishedDocument(rm))) continue
     const period = progressPeriod(rm)
     const group = groups.get(period.key) ?? {...period, entries: []}
     group.order = Math.max(group.order, period.order)
-    group.entries.push({rm, reviews})
+    group.entries.push({rm, reviews, reviewDrafts})
     groups.set(period.key, group)
   }
-  const reviewCount = (group: ProgressGroup) => group.entries.reduce((n,e) => n + e.reviews.filter(r => r.status !== 'draft').length, 0)
+  const reviewCount = (group: ProgressGroup) => group.entries.reduce((n,e) => n + e.reviews.length, 0)
   const result = [...groups.values()].sort((a,b) =>
     (sort === 'reviewed' ? reviewCount(b) - reviewCount(a) : 0)
     || (a.monday && !b.monday ? -1 : !a.monday && b.monday ? 1 : 0)
@@ -39,7 +42,7 @@ export function groupProgress(initiativeId: string, documents: DocumentRecord[],
     (sort === 'reviewed' ? b.reviews.length - a.reviews.length : 0) || a.rm.title.localeCompare(b.rm.title))
   // Reviews authored for other initiatives or whose source target is unavailable
   // remain discoverable instead of being attached to an unrelated RM.
-  const otherReviews = documents.filter(d => d.initiativeId === initiativeId && d.kind === 'review' && !ids.has(d.targetId ?? ''))
-  return { groups: result, otherReviews, totalRms: rms.length,
-    totalReviews: documents.filter(d => d.kind === 'review' && ids.has(d.targetId ?? '')).length }
+  const other = documents.filter(d => d.initiativeId === initiativeId && d.kind === 'review' && !ids.has(d.targetId ?? ''))
+  return { groups: result, otherReviews:other.filter(isPublishedDocument), otherReviewDrafts:other.filter(d=>d.status==='draft'), totalRms: rms.length,
+    totalReviews: documents.filter(d => d.kind === 'review' && ids.has(d.targetId ?? '') && isPublishedDocument(d)).length }
 }

@@ -58,14 +58,44 @@ it('puts join requests on the initiative card for its lead', async () => {
   expect(card?.querySelector('.initiative-joins button')?.textContent).toContain('Add to team')
 })
 
-it('shows proposals on Home only when nothing is pending', async () => {
+it('keeps proposals reachable while work is pending for Member and Research', async () => {
   await show(structuredClone(seed), 'alex')
-  expect(host.querySelector('.dashboard-proposals')).toBeNull()
+  expect(host.querySelector('.dashboard-proposals a[href="#/new-proposal"]')?.textContent).toContain('Propose a project')
   await act(async () => root!.unmount()); root = undefined; host.remove()
 
-  const clear = structuredClone(seed)
-  clear.obligations = clear.obligations.filter(o => o.assigneeId !== 'alex')
-  clear.requests = clear.requests.filter(r => !(r.kind === 'join' && r.status === 'pending'))
-  await show(clear, 'alex')
+  await show(structuredClone(seed), 'maya')
   expect(host.querySelector('.dashboard-proposals a[href="#/new-proposal"]')).not.toBeNull()
+})
+
+it('does not let a historical week satisfy a current weekly obligation', async () => {
+  await show(structuredClone(seed), 'alex')
+  const weekly = host.querySelector('.dashboard-rm') ?? [...host.querySelectorAll('.dashboard-section')].find(s=>s.textContent?.includes('Your Roast Mes'))
+  expect(weekly?.textContent).toContain('Start this week’s draft')
+  expect(weekly?.textContent).not.toContain('View this week’s submitted report')
+})
+
+it('shows waiting and unavailable review assignments without a start action', async () => {
+  const data = structuredClone(seed)
+  data.obligations.push({id:'wait',initiativeId:'memory',assigneeId:'alex',kind:'review',due:'2026-09-14T06:59:00Z',status:'pending'})
+  data.obligations.push({id:'missing',initiativeId:'memory',assigneeId:'alex',kind:'review',due:'2026-09-14T06:59:00Z',status:'pending',targetId:'gone'})
+  await show(data, 'alex')
+  const reviews = host.querySelector('.dashboard-reviews')!
+  expect(reviews.textContent).toContain('Waiting for Research to assign a report')
+  expect(reviews.textContent).toContain('Assigned report unavailable')
+  expect(reviews.querySelector('button')).toBeNull()
+})
+
+it('retains this week’s completed update with a submitted action and separate revision indication',async()=>{
+  const data=structuredClone(seed)
+  const {losAngelesMonday}=await import('./domain')
+  const monday=losAngelesMonday()
+  const ob=data.obligations.find(o=>o.id==='o3')!
+  Object.assign(ob,{cycleMonday:monday,status:'complete'})
+  const report=data.documents.find(d=>d.id==='rm-memory')!
+  Object.assign(report,{obligationId:ob.id,targetMonday:monday,status:'draft',versions:[{version:1,body:'<p>Submitted report</p>',at:'2026-10-02T10:00:00Z'}]})
+  await show(data,'alex')
+  const row=host.querySelector('.dashboard-rm')!
+  expect(row.textContent).toContain('Submitted')
+  expect(row.textContent).toContain('Revision draft in progress')
+  expect(row.querySelector('a[href="#/document/rm-memory"]')?.textContent).toContain('View this week’s submitted report')
 })

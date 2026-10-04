@@ -1,4 +1,5 @@
 import { obligationDocument, obligationWeek, isPublishedDocument } from './obligationPresentation'
+import { useDraftPersistence } from './useDraftPersistence'
 /**
  * The External Brain - front-end dashboard for Neuro Network at UC San Diego.
  *
@@ -1589,26 +1590,13 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
   onWorkState?:(state:{unsaved:boolean;uploads:number})=>void; onSubmitted?:()=>void
   showReference?:boolean
 }) {
-  const [title, setTitle] = useState(doc.title)
-  const [body, setBody] = useState(doc.body)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const {title,body,change,save,cancelAutosave,saveState,savedAt,unsaved} = useDraftPersistence(
+    {documentId:doc.id,title:doc.title,body:doc.body}, snapshot=>ctx.run('saveDraft',snapshot))
   const [submittingRm, setSubmittingRm] = useState(false)
   const [submitMonday, setSubmitMonday] = useState(doc.targetMonday ?? losAngelesMonday())
-  const [unsaved,setUnsaved]=useState(false)
   const [uploads,setUploads]=useState(0)
-  const dirty = useRef(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(()=>onWorkState?.({unsaved,uploads}),[unsaved,uploads,onWorkState])
 
-  useEffect(() => {
-    if (!dirty.current) return
-    clearTimeout(timer.current)
-    timer.current = setTimeout(async () => {
-      const ok = await ctx.run('saveDraft', { documentId: doc.id, title, body })
-      if (ok) { setSavedAt(Date.now()); dirty.current = false; setUnsaved(false) }
-    }, 900)
-    return () => clearTimeout(timer.current)
-  }, [title, body]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isRm = doc.kind === 'rm'
   const attached = !!doc.obligationId
@@ -1633,12 +1621,16 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
         <div>
           <Pill tone="info">draft</Pill>{' '}
           <Pill tone="muted">{isRm ? 'Roast Me' : 'manual review'}</Pill>{' '}
-          {isRm && (choosingWeek || attached) ? <Pill tone={week.tone}>{week.label}</Pill> : null}
+          {isRm ? <Pill tone={week.tone}>{week.label}</Pill> : null}
         </div>
-        <span className="muted">
-          {savedAt ? `saved ${fmtDateTime(new Date(savedAt).toISOString())}` : 'not saved yet'}
+        <span className="muted" role="status" aria-live="polite">
+          {saveState}{saveState === 'Saved' && savedAt ? ` ${fmtDateTime(new Date(savedAt).toISOString())}` : ''}
         </span>
       </div>
+      {isRm ? <p className="field-hint" role="status">
+        Reporting week: {submissionWeek}. {week.note || `This week is open; the initiative lead can submit${weekState(ctx,submissionWeek).tone === 'good' && ctx.data.cycles?.find(c=>c.startsOn===submissionWeek)?.rmDue ? ` by ${fmtDateTime(ctx.data.cycles.find(c=>c.startsOn===submissionWeek)!.rmDue)}` : ''}.`}
+        {' '}Team members can draft; only the initiative lead can submit.
+      </p> : <p className="field-hint">Write constructive feedback on the source version shown beside your peer review.</p>}
       {choosingWeek ? (
         <Field
           label="Submit for cycle week (Monday, Los Angeles)"
@@ -1662,13 +1654,13 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
       <Field label="Title">
         <input
           type="text" value={title} disabled={ctx.busy}
-          onChange={(e) => { dirty.current = true; setUnsaved(true); setTitle(e.target.value) }}
+          onChange={(e) => change({title:e.target.value})}
         />
       </Field>
-      <Field label="Body" hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
+      <Field label={isRm ? 'Weekly update body' : 'Peer review body'} hint="Paste or upload PNG, JPEG, GIF or WebP images directly into the text.">
         <Editor
           body={body}
-          onChange={(html) => { dirty.current = true; setUnsaved(true); setBody(html) }}
+          onChange={(html) => change({body:html})}
           uploadScopeId={doc.id}
           onUploadImage={(file) => {
             if (!doc.id) {
@@ -1684,12 +1676,9 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
         <button
           className="btn ghost sm"
           disabled={ctx.busy}
-          onClick={async () => {
-            const ok = await ctx.run('saveDraft', { documentId: doc.id, title, body }, 'Draft saved.')
-            if (ok) { setSavedAt(Date.now()); dirty.current = false; setUnsaved(false) }
-          }}
+          onClick={() => void save()}
         >
-          Save now
+          {saveState === 'Save failed—retry' ? 'Retry save' : 'Save now'}
         </button>
         <button
           className="btn"
@@ -1702,8 +1691,7 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
               return
             }
             if (!window.confirm(`Submit this ${label}? You can reopen it later to revise.`)) return
-            clearTimeout(timer.current) // cancel any pending autosave
-            dirty.current = false
+            cancelAutosave()
             const ok=await ctx.run('submitDocument', { documentId: doc.id, title, body }, 'Submitted.')
             if(ok)onSubmitted?.()
           }}
@@ -1743,7 +1731,7 @@ function DraftEditor({ ctx, doc, ini, onWorkState, onSubmitted, showReference = 
             </div>
             {/* Read-only and pinned: the reference never becomes editable, and it
                 shows the assigned version even after a later revision. */}
-            <Editor body={sanitize(reference.version.body)} readOnly />
+            <Editor  body={sanitize(reference.version.body)} readOnly />
           </section>
         }
         right={draftBody}
@@ -3051,7 +3039,7 @@ function DocumentModal({ctx,documentId,onClose}:{ctx:Ctx;documentId:string;onClo
         }}><Maximize2 size={16}/></a>
         <button className="btn ghost sm icon-btn" onClick={requestClose} aria-label="Close" title="Close"><X size={16}/></button></div></div>
     {editing
-      ? <DraftEditor ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose} showReference={referenceShown}/>
+      ? <DraftEditor key={doc.id} ctx={ctx} doc={doc} ini={ini} onWorkState={setWork} onSubmitted={onClose} showReference={referenceShown}/>
       : doc.status==='draft' && !isPublishedDocument(doc)
         ? <p className="muted">This document is still a private draft.</p>
         : <SubmittedDoc key={doc.id} ctx={ctx} doc={doc.status==='draft'?{...doc,status:'submitted',body:doc.versions.at(-1)?.body??''}:doc} ini={ini}/>}
@@ -3304,7 +3292,7 @@ function PageDocument({ ctx }: { ctx: Ctx }) {
           </p>
           {hasReferencePane(ctx, doc) ? <ReferenceToggle shown={referenceShown} onToggle={toggleReference} /> : null}
         </div>
-        <DraftEditor ctx={ctx} doc={doc} ini={ini} showReference={referenceShown} />
+        <DraftEditor key={doc.id} ctx={ctx} doc={doc} ini={ini} showReference={referenceShown} />
       </div>
     )
   }

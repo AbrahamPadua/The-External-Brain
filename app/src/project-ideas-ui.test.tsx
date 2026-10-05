@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import App, { createMutationGateway } from './App'
 import { demoAction } from './demo'
 import { seed } from './model'
-import type { Data, ProposalPurpose } from './model'
+import type { AccountStatus, Data, ProposalPurpose } from './model'
 
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true})
 let root: ReturnType<typeof createRoot> | undefined
@@ -84,25 +84,48 @@ it('labels both purposes in the Research queue and My proposals', async () => {
   expect(host.querySelector('.dashboard-proposals')?.textContent).toContain('Proposed initiative')
 })
 
-it('provides public shareable catalog tabs, approved content and proposer credit without exposing drafts or notes', async () => {
+it.each<AccountStatus|null>([null,'pending','rejected','suspended'])('hides the ideas tab and blocks idea catalog/detail links for %s accounts even with cached content', async status => {
+  const {data,id} = await publishedData()
+  const userId=status ? 'jordan' : null
+  if(status)data.people.find(p=>p.id==='jordan')!.status=status
+  await show(data,userId,'#/catalog')
+  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Initiatives')
+  expect(host.querySelector('a[role="tab"][href="#/catalog/project-ideas"]')).toBeNull()
+  for(const hash of ['#/catalog/project-ideas',`#/project-idea/${id}`, '#/project-idea/unknown']) {
+    await show(data,userId,hash)
+    expect(host.textContent).toContain('An approved account is needed here')
+    expect(host.querySelector('.project-idea-content')).toBeNull()
+    expect(host.querySelector('.idea-catalog-card')).toBeNull()
+    expect(host.querySelector('input[aria-label="Search project ideas"]')).toBeNull()
+    for(const privateContent of [proposal.title,proposal.abstract,proposal.plan,proposal.motivation,'Proposed by Alex Rivera'])expect(host.textContent).not.toContain(privateContent)
+    expect(host.querySelector('a[href="#/catalog/project-ideas"]')).toBeNull()
+    expect([...host.querySelectorAll('button')].map(b=>b.textContent)).not.toContain('Request to lead')
+  }
+})
+
+it('provides member catalog tabs, approved content and proposer credit without exposing drafts or notes', async () => {
   const {data,id} = await publishedData()
   data.requests.push({id:'private-draft',kind:'proposal',userId:'alex',purpose:'project_idea',title:'Private draft title',body:'Private draft body',status:'draft'})
   data.requests.push({id:'private-note',kind:'idea_lead',proposalId:id,userId:'sam',title:proposal.title,body:'Private applicant note',status:'pending'})
-  await show(data,null,'#/catalog')
+  await show(data,'sam','#/catalog')
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Initiatives')
-  await show(data,null,'#/catalog/project-ideas')
+  await show(data,'sam','#/catalog/project-ideas')
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Project ideas')
   expect(host.querySelector(`a[href="#/project-idea/${id}"]`)?.textContent).toContain(proposal.title)
   expect(host.textContent).not.toContain('Private draft title')
   expect(host.textContent).not.toContain('Private applicant note')
-  await show(data,null,`#/project-idea/${id}`)
+  await show(data,'alex',`#/project-idea/${id}`)
   expect(host.textContent).toContain('Available to lead')
   expect(host.textContent).toContain('Proposed by Alex Rivera')
   for (const name of ['Abstract','Execution plan','Motivation']) expect(host.querySelector(`section[aria-label="${name}"]`)).not.toBeNull()
   expect(host.textContent).toContain(proposal.plan)
-  expect([...host.querySelectorAll('button')].map(b => b.textContent)).not.toContain('Request to lead')
+  expect(button('Request to lead')).toBeDefined()
+  expect(host.textContent).not.toContain('Private applicant note')
   await show(data,'jordan',`#/project-idea/${id}`)
-  expect(host.textContent).toContain('Your account must be approved to request to lead.')
+  expect(host.textContent).toContain('An approved account is needed here')
+  expect(host.querySelector('.project-idea-content')).toBeNull()
+  await show(data,'alex',`#/project-idea/${id}`)
+  expect(host.querySelector('.project-idea-content')).not.toBeNull()
 })
 
 it('shows Research the private lead queue and shows each applicant only their own Home requests', async () => {
@@ -124,13 +147,19 @@ it('shows Research the private lead queue and shows each applicant only their ow
   await show(data,'alex','#/')
   expect(host.querySelector('.dashboard-lead-requests')?.textContent).toContain('Taken up by another member')
   expect(host.querySelector('.dashboard-lead-requests')?.textContent).not.toContain('Rejected')
-  await show(data,null,'#/catalog/project-ideas')
+  await show(data,'alex','#/catalog/project-ideas')
   expect(host.querySelector('.idea-catalog-card')).toBeNull()
-  await show(data,null,`#/project-idea/${id}`)
+  await show(data,'alex',`#/project-idea/${id}`)
   const initiative = data.initiatives[0]
   expect(host.querySelector(`a[href="#/initiative/${initiative.id}/overview"]`)?.textContent).toContain('Open resulting initiative')
   await show(data,null,`#/initiative/${initiative.id}/overview`)
   expect(host.textContent).toContain('Idea proposed by Alex Rivera')
+  expect(host.querySelector(`a[href="#/project-idea/${id}"]`)).toBeNull()
+  await show(data,'alex',`#/initiative/${initiative.id}/overview`)
+  expect(host.querySelector(`a[href="#/project-idea/${id}"]`)?.textContent).toBe('Original project idea')
+  await show(data,null,`#/project-idea/${id}`)
+  expect(host.textContent).toContain('An approved account is needed here')
+  expect(host.querySelector(`a[href="#/initiative/${initiative.id}/overview"]`)).toBeNull()
 })
 
 it('sorts and filters only available approved ideas by discipline and proposer search', async () => {
@@ -141,7 +170,7 @@ it('sorts and filters only available approved ideas by discipline and proposer s
     {...original,id:'alpha',title:'Alpha experiment',category:'Neuroscience'},
     {...original,id:'taken',title:'Already started',initiativeId:'sound'},
   ]
-  await show(data,null,'#/catalog/project-ideas')
+  await show(data,'sam','#/catalog/project-ideas')
   const titles = () => [...host.querySelectorAll('.idea-catalog-card h3')].map(h=>h.textContent)
   expect(titles()).toEqual(['Alpha experiment','Zebra experiment'])
   await act(async()=>{

@@ -147,7 +147,7 @@ export function normalizeDemo(d: Data): Data {
       if (r.purpose !== 'project_idea') r.purpose = 'own_initiative'
     }
   })
-  // Rebuild the public projection from approved proposals, including taken ideas
+  // Rebuild the member catalog from approved proposals, including taken ideas
   // so old detail links survive. Never project drafts or their review feedback.
   const projected = new Map((d.projectIdeas ?? []).filter(i => !d.requests.some(r => r.id === i.id)).map(i => [i.id, i]))
   for (const r of d.requests.filter(r => r.kind === 'proposal' && r.purpose === 'project_idea' && r.status === 'approved')) {

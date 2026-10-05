@@ -10,7 +10,7 @@ For live mode, copy `app/.env.example` to `app/.env.local` and set your Supabase
 
 ## Backend setup
 
-1. Create an organization-owned Supabase project and apply every file in `supabase/migrations/` in filename order. The migration set is `001`–`026`. Later migrations supersede the initial policies and commands; do not stop at `007`. Migration `025` separates approved abstracts and execution plans; `026` adds project ideas and Research approvals for members requesting to lead them. Existing initiatives retain their content and assignments. See [Project ideas](docs/PROJECT-IDEAS.md).
+1. Create an organization-owned Supabase project and apply every file in `supabase/migrations/` in filename order. The migration set is `001`–`027`. Later migrations supersede the initial policies and commands; do not stop at `007`. Migration `025` separates approved abstracts and execution plans; `026` adds project ideas and Research approvals for members requesting to lead them; `027` restricts ideas to currently approved members. Existing initiatives retain their content and assignments. See [Project ideas](docs/PROJECT-IDEAS.md).
 2. Enable email magic-link authentication, configure production SMTP, and register the exact local/deployed redirect URL in Supabase Auth settings.
 3. Sign up the initial Operations administrator. An organization owner then approves that user's UUID and grants the Operations role through the Supabase SQL editor; see `docs/BACKEND.md`. This is the only bootstrap exception to self-approval restrictions.
 4. Configure `supabase/schedule.sql` for retry-safe weekly cycles/deadline evaluation. Research leadership can also explicitly open a cycle. Pause scheduled jobs during staging imports.
@@ -18,7 +18,7 @@ For live mode, copy `app/.env.example` to `app/.env.local` and set your Supabase
 
 Deployment verified October 4, 2026: the UX fixes are merged into `master` at `2db9f7f`, and the [GitHub Pages deployment](https://github.com/AbrahamPadua/The-External-Brain/actions/runs/37170808336) succeeded. The JavaScript and CSS served by the [live site](https://abrahampadua.github.io/The-External-Brain/) matched a fresh local production build byte for byte. Public Home, Catalog, and initiative Overview/Team pages were checked; authenticated live submissions were not retested.
 
-After that audit, the operator applied migrations `025` and `026` in SQL Editor. Read-only hosted checks verified the catalog columns and denied anonymous reads of applicant notes. New installations must apply both complete transactions before deploying the project-ideas frontend. Frontend deployment alone does not apply database migrations. Scheduled processing, backup/restore, import reconciliation, and member cutover were not verified by this audit.
+After that audit, the operator applied migrations `025` and `026` in SQL Editor. Read-only hosted checks verified the catalog columns and denied anonymous reads of applicant notes. Migration `027`, applied October 5, restricts the project-idea catalog and original idea details to signed-in, currently approved members; initiatives remain public. New installations must apply all three complete transactions before deploying the current project-ideas frontend. Frontend deployment alone does not apply database migrations. Scheduled processing, backup/restore, import reconciliation, and member cutover were not verified by this audit.
 
 ## Publish to GitHub Pages
 

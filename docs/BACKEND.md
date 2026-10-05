@@ -1,10 +1,10 @@
 # The External Brain backend contract
 
-Apply ALL numbered files in `supabase/migrations/` in order in a new Supabase project. Later migrations supersede the initial policies and commands; applying only the first file is unsafe. No migration contains project credentials. The migration set is `001`–`026`. The operator applied `025` and `026` on October 4, 2026; a read-only hosted check confirmed the execution-plan and project-idea catalog columns and denied anonymous reads of applicant notes. Apply both migrations before deploying the project-ideas frontend. See [Project ideas](PROJECT-IDEAS.md) for the contract and verification steps.
+Apply ALL numbered files in `supabase/migrations/` in order in a new Supabase project. Later migrations supersede the initial policies and commands; applying only the first file is unsafe. No migration contains project credentials. The migration set is `001`–`027`. The operator applied `025` and `026` on October 4, 2026, and `027` on October 5. Apply all three migrations before deploying the current project-ideas frontend. Migration `027` restricts project ideas to currently approved members while preserving public initiative access and proposer credit. See [Project ideas](PROJECT-IDEAS.md) for the contract and verification steps.
 
 ## Client contract
 
-The browser uses the anon key and invokes RPC functions for every privileged transition. All account statuses except `approved` can read only their own profile and the public initiative and project-idea catalogs. A verified sign-in is therefore insufficient for any internal record.
+The browser uses the anon key and invokes RPC functions for every privileged transition. All account statuses except `approved` can read only their own profile and the public initiative catalog. Project ideas require a signed-in, currently approved account; anonymous callers are denied and unapproved authenticated callers receive no ideas. Public initiative rows omit the original idea reference. A verified sign-in is therefore insufficient for any internal record.
 
 | RPC | Inputs | Result / rule |
 | --- | --- | --- |

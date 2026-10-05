@@ -12,17 +12,27 @@ vi.mock('./client', () => ({supabase:{
 const idea = {id:'idea',title:'Perception project',summary:'A focused experiment on perception.',category:'Neuroscience',execution_plan:'Recruit a team.\n\nPilot and analyze.',motivation:'A long motivation.',proposer_id:'proposer',proposer_name:'Original proposer',initiative_id:'started'}
 beforeEach(() => {mock.tables={project_idea_catalog:[idea]};mock.reads=[];mock.rpc.mockReset();mock.rpc.mockResolvedValue({data:null,error:null})})
 
-it('loads only public projections for visitors and unapproved accounts', async () => {
-  const visitor = await loadLive(null)
-  expect(mock.reads.sort()).toEqual(['initiative_catalog','project_idea_catalog'])
+it.each([null,'pending','rejected','suspended','missing'])('does not fetch ideas or their references for a %s account', async status => {
+  mock.tables.initiative_catalog=[{id:'started',title:idea.title,summary:idea.summary,project_idea_id:'idea',proposer_id:'proposer',proposer_name:'Original proposer'}]
+  if(status && status!=='missing')mock.tables.profiles=[{id:'visitor',display_name:'Visitor',account_status:status}]
+  const visitor = await loadLive(status ? 'visitor' : null)
+  expect(mock.reads.sort()).toEqual(status ? ['initiative_catalog','profiles'] : ['initiative_catalog'])
+  expect(visitor.projectIdeas).toEqual([])
+  expect(visitor.initiatives[0]).toMatchObject({id:'started',proposerName:'Original proposer'})
+  expect(visitor.initiatives[0]).not.toHaveProperty('projectIdeaId')
   expect(visitor.requests).toEqual([])
-  expect(visitor.projectIdeas![0]).toMatchObject({plan:idea.execution_plan,proposerId:'proposer',proposerName:'Original proposer',initiativeId:'started'})
+})
+
+it('clears member ideas when a later load is signed out or the account is suspended', async () => {
+  mock.tables.profiles=[{id:'member',display_name:'Member',account_status:'approved'}]
+  expect((await loadLive('member')).projectIdeas).toHaveLength(1)
+  expect((await loadLive(null)).projectIdeas).toEqual([])
+  mock.tables.profiles[0].account_status='suspended'
   mock.reads=[]
-  mock.tables.profiles=[{id:'pending',display_name:'Pending member',account_status:'pending'}]
-  const pending = await loadLive('pending')
-  expect(mock.reads.sort()).toEqual(['initiative_catalog','profiles','project_idea_catalog'])
-  expect(pending.projectIdeas).toEqual(visitor.projectIdeas)
-  expect(pending.requests).toEqual([])
+  const visitor = await loadLive('member')
+  expect(mock.reads.sort()).toEqual(['initiative_catalog','profiles'])
+  expect(visitor.requests).toEqual([])
+  expect(visitor.projectIdeas).toEqual([])
 })
 
 it('maps private requests, purposes and the resulting initiative credit for approved accounts', async () => {

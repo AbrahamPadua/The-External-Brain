@@ -2684,16 +2684,16 @@ function IdeaLeadForm({ ctx, idea }: { ctx: Ctx; idea: ProjectIdea }) {
 }
 
 function PageProjectIdea({ ctx }: { ctx: Ctx }) {
+  if (!ctx.approved) return <AccessNeeded ctx={ctx} />
   const idea = (ctx.data.projectIdeas ?? []).find(i => i.id === ctx.route.parts[1])
   if (!idea) return <NotFound />
-  const pending = ctx.approved && ctx.data.requests.some(r => r.kind === 'idea_lead' && r.proposalId === idea.id && r.userId === ctx.userId && r.status === 'pending')
+  const pending = ctx.data.requests.some(r => r.kind === 'idea_lead' && r.proposalId === idea.id && r.userId === ctx.userId && r.status === 'pending')
   return <div className="section">
     <p className="muted"><a href="#/catalog/project-ideas"><ArrowLeft size={13} /> Project ideas</a></p>
     <div className="between"><h1>{idea.title}</h1><Pill tone={idea.initiativeId ? 'info' : 'good'}>{idea.initiativeId ? 'Initiative started' : 'Available to lead'}</Pill></div>
     <div className="card">
       <ProjectIdeaContent idea={idea} />
       {idea.initiativeId ? <a className="btn" href={`#/initiative/${idea.initiativeId}/overview`}>Open resulting initiative</a>
-        : !ctx.approved ? <p className="muted">{ctx.me ? 'Your account must be approved to request to lead.' : <><a href="#/signin">Sign in</a> with an approved account to request to lead.</>}</p>
         : pending ? <Pill tone="warn">Lead request pending Research review</Pill>
         : <IdeaLeadForm key={idea.id} ctx={ctx} idea={idea} />}
     </div>
@@ -2709,8 +2709,8 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
   const noun = ideasTab ? 'project ideas' : 'initiatives'
 
   const allowed = useMemo(() => {
-    return ideasTab ? (ctx.data.projectIdeas ?? []).filter(i => !i.initiativeId) : ctx.data.initiatives
-  }, [ideasTab, ctx.data.projectIdeas, ctx.data.initiatives])
+    return ideasTab ? (ctx.approved ? (ctx.data.projectIdeas ?? []).filter(i => !i.initiativeId) : []) : ctx.data.initiatives
+  }, [ideasTab, ctx.approved, ctx.data.projectIdeas, ctx.data.initiatives])
 
   const categoryList = useMemo(() => {
     const counts = new Map<string, number>()
@@ -2736,17 +2736,19 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       })
   }, [allowed, ctx, q, status, category, sort])
 
+  if (ideasTab && !ctx.approved) return <AccessNeeded ctx={ctx} />
+
   return (
     <div className="catalog-page">
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
-          Neuro Network initiatives and approved project ideas at UC San Diego. Anyone can read this page.
+          {ctx.approved ? 'Neuro Network initiatives and project ideas at UC San Diego. Project ideas are available to current members.' : 'Neuro Network initiatives at UC San Diego. Anyone can browse these initiatives.'}
         </p>
       </div>
       <div className="tabs" role="tablist" aria-label="Catalog">
         <a role="tab" aria-selected={!ideasTab} className={`tab ${!ideasTab ? 'active' : ''}`} href="#/catalog/initiatives">Initiatives</a>
-        <a role="tab" aria-selected={ideasTab} className={`tab ${ideasTab ? 'active' : ''}`} href="#/catalog/project-ideas">Project ideas</a>
+        {ctx.approved ? <a role="tab" aria-selected={ideasTab} className={`tab ${ideasTab ? 'active' : ''}`} href="#/catalog/project-ideas">Project ideas</a> : null}
       </div>
       <div className="catalog-toolbar">
         <div className="catalog-toolbar-main">
@@ -3203,7 +3205,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-          {ini.projectIdeaId ? <span className="muted">Idea proposed by {ini.proposerName || 'Member'} · <a href={`#/project-idea/${ini.projectIdeaId}`}>Original project idea</a></span> : null}
+          {ini.proposerName || ini.projectIdeaId ? <span className="muted">Idea proposed by {ini.proposerName || 'Member'}{ctx.approved && ini.projectIdeaId ? <> · <a href={`#/project-idea/${ini.projectIdeaId}`}>Original project idea</a></> : null}</span> : null}
           <HpBar hp={ini.hp} />
         </div>
       </div>

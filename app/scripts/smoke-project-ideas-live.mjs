@@ -41,9 +41,13 @@ async function main() {
     const {error}=await actor.client.rpc(name,args)
     assert.ok(error && pattern.test(error.message),`Expected permission or validation denial from ${name}`)
   }
+  const deniedIdeas=async()=> {
+    const {error,status}=await anon.from('project_idea_catalog').select('id,title,summary,execution_plan,motivation').limit(1)
+    assert.ok([401,403].includes(status)&&error?.code==='42501','Project ideas must deny anonymous reads; apply migration 027')
+  }
   if(process.argv.includes('--verify-cleanup')) {
+    await deniedIdeas()
     for(const title of f.titles) {
-      assert.equal((await rows(null,'project_idea_catalog',{title},'id')).length,0,'Test idea remains public')
       assert.equal((await rows(null,'initiative_catalog',{title},'id')).length,0,'Test initiative remains public')
     }
     for(const account of [f.research,f.applicant,...(f.temporaryPassword?[f.member]:[])]) {
@@ -52,7 +56,7 @@ async function main() {
       if(!error){await client.auth.signOut({scope:'local'});throw new Error('A disposable credential is still usable after cleanup')}
       assert.ok(['user_banned','invalid_credentials'].includes(error.code),'Cleanup authentication check could not be completed')
     }
-    console.log('PASS (live cleanup): test catalog entries removed and temporary credentials disabled.')
+    console.log('PASS (live cleanup): public test initiatives removed, ideas inaccessible anonymously, and temporary credentials disabled. Private proposal removal is enforced by cleanup.sql.')
     return
   }
   try {
@@ -194,7 +198,7 @@ async function main() {
       await waitFor(`document.querySelector('.dashboard-proposals')?.textContent.includes(${JSON.stringify(f.titles[0])})`,'saved draft on Home')
       const draft=await proposal(f.titles[0]);ideaId=draft.id
       assert.equal(draft.status,'draft')
-      assert.equal((await rows(null,'project_idea_catalog',{id:ideaId})).length,0,'Draft must stay private')
+      assert.equal((await rows(applicant,'project_idea_catalog',{id:ideaId})).length,0,'Draft must stay private')
       assert.equal((await rows(applicant,'proposals',{id:ideaId})).length,0,'Other members must not read drafts')
       await navigate(`new-proposal/${ideaId}`)
       await waitFor(`document.querySelector('form.card input')`,'restored draft')
@@ -222,17 +226,25 @@ async function main() {
     await click('Approve & publish idea',ideaCard)
     await waitFor(`!(${ideaCard})`,'published idea decision')
     assert.equal((await rows(research,'initiatives',{proposal_id:ideaId})).length,0,'Approving an idea must not create a team')
-    assert.equal((await rows(null,'project_idea_catalog',{id:ideaId}))[0]?.initiative_id,null)
+    assert.equal((await rows(applicant,'project_idea_catalog',{id:ideaId}))[0]?.initiative_id,null)
     console.log('PASS: live form requirements, Enter, private draft, changes/resubmission, idea approval without a team.')
 
-    await visit(null,'catalog/project-ideas')
-    await waitFor(`document.querySelector('a.idea-catalog-card[href="#/project-idea/${ideaId}"]')`,'available idea in the public catalog')
+    await deniedIdeas()
+    await visit(null,'catalog')
+    await waitFor(`document.querySelector('.catalog-page')`,'public initiative catalog')
+    assert.equal(await evaluate(`!!document.querySelector('a[role="tab"][href="#/catalog/project-ideas"]')`),false,'Visitors must not see the ideas tab')
+    for(const route of ['catalog/project-ideas',`project-idea/${ideaId}`]) {
+      await navigate(route)
+      await waitFor(`document.body.textContent.includes('An approved account is needed here')`,'member-only idea access')
+      assert.equal(await evaluate(`!!document.querySelector('.project-idea-content,.idea-catalog-card')||document.body.textContent.includes(${JSON.stringify(f.titles[0])})`),false,'Direct links must not expose ideas')
+    }
+    await visit(member,'catalog/project-ideas')
+    await waitFor(`document.querySelector('a.idea-catalog-card[href="#/project-idea/${ideaId}"]')`,'available idea in the member catalog')
     await setValue("document.querySelector('input.catalog-search')",f.run)
     assert.equal(await evaluate('document.querySelectorAll("a.idea-catalog-card").length'),1,'Live catalog search must find the fixture idea')
     await navigate(`project-idea/${ideaId}`)
-    await waitFor(`document.querySelector('.project-idea-content')`,'public approved idea')
-    assert.equal(await evaluate(`document.querySelector('.project-idea-content').textContent.includes(${JSON.stringify(member.name)})`),true,'Proposer credit must be public')
-    assert.equal(await evaluate(hasButton('Request to lead')),false,'Visitors must not apply')
+    await waitFor(`document.querySelector('.project-idea-content')`,'member-visible approved idea')
+    assert.equal(await evaluate(`document.querySelector('.project-idea-content').textContent.includes(${JSON.stringify(member.name)})`),true,'Members must see proposer credit')
     const publicNotes=await anon.from('idea_lead_requests').select('id,message').eq('proposal_id',ideaId)
     assert.ok(publicNotes.error,'Applicant notes must be denied to anonymous users')
     await visit(applicant,`project-idea/${ideaId}`)
@@ -273,6 +285,10 @@ async function main() {
     assert.equal((await rows(member,'idea_lead_requests',{id:winner.id})).length,0,'Members may not read other applicants\' notes')
     await rpc(research,'decide_account',{p_user:applicant.id,p_status:'suspended',p_reason:`Disposable smoke ${f.run}`})
     try {
+      assert.equal((await rows(applicant,'project_idea_catalog',{id:ideaId})).length,0,'Suspended accounts must not read ideas even with an existing session')
+      await visit(applicant,`project-idea/${ideaId}`)
+      await waitFor(`document.body.textContent.includes('Your account is suspended')`,'suspended idea access guard')
+      assert.equal(await evaluate(`!!document.querySelector('.project-idea-content')`),false)
       await denied(applicant,'request_idea_lead',{p_proposal:ideaId,p_message:'Suspended applicants cannot make a request.'},/approved account required/)
       await denied(research,'decide_idea_lead',{p_request:winner.id,p_approve:true},/applicant must be approved/)
       assert.equal((await rows(research,'initiatives',{proposal_id:ideaId})).length,0,'Suspended applicant must not start an initiative')
@@ -303,15 +319,19 @@ async function main() {
     assert.ok((await rows(member,'notifications',{'payload->>proposal_id':ideaId},'kind')).some(n=>n.kind==='project_idea_started'),'Notify the original proposer')
     await visit(member,'')
     await waitFor(`document.querySelector('.dashboard-lead-requests')?.textContent.includes('Taken up by another member')`,'taken request on Home')
-    await visit(null,'catalog/project-ideas')
-    await waitFor(`document.querySelector('.catalog-page')`,'public ideas list')
+    await visit(member,'catalog/project-ideas')
+    await waitFor(`document.querySelector('.catalog-page')`,'member ideas list')
     assert.equal(await evaluate(`!!document.querySelector('a.idea-catalog-card[href="#/project-idea/${ideaId}"]')`),false,'Taken ideas leave the available list')
     await navigate(`project-idea/${ideaId}`)
     await waitFor(`document.querySelector('a[href="#/initiative/${initiative.id}/overview"]')`,'original detail links to the initiative')
     await navigate(`initiative/${initiative.id}/overview`)
     await waitFor(`document.body.textContent.includes(${JSON.stringify('Idea proposed by '+member.name)})`,'retained proposer credit on initiative')
     assert.equal(await evaluate(`document.body.textContent.includes(${JSON.stringify('Lead: '+applicant.name)})`),true)
-    console.log('PASS: public credit/privacy, requests and decline feedback, suspension boundary, competition, one lead membership, retry safety, notifications, retained idea links/content, no immediate obligations or HP.')
+    await visit(null,`initiative/${initiative.id}/overview`)
+    await waitFor(`document.body.textContent.includes(${JSON.stringify('Idea proposed by '+member.name)})`,'public initiative retains credit')
+    assert.equal(await evaluate(`!!document.querySelector('a[href="#/project-idea/${ideaId}"]')`),false,'Public initiatives must not link to member-only ideas')
+    assert.equal((await rows(null,'initiative_catalog',{id:initiative.id}))[0].project_idea_id,null)
+    console.log('PASS: member-only ideas, public initiative credit without private idea links, private notes, declines, suspension boundary, competition, one lead membership, retry safety, notifications, retained member idea links/content, no immediate obligations or HP.')
 
     await visit(member,'new-proposal')
     await fillProposal(f.titles[1])
@@ -328,7 +348,7 @@ async function main() {
     assert.equal(ownInitiative?.lead_id,member.id)
     assert.equal(ownInitiative.content.execution_plan,plan)
     assert.deepEqual(await rows(member,'initiative_memberships',{initiative_id:ownInitiative.id},'user_id,role,left_at'),[{user_id:member.id,role:'lead',left_at:null}])
-    assert.equal((await rows(null,'project_idea_catalog',{id:ownProposal.id})).length,0,'Own proposals are not project ideas')
+    assert.equal((await rows(member,'project_idea_catalog',{id:ownProposal.id})).length,0,'Own proposals are not project ideas')
     await visit(member,`initiative/${ownInitiative.id}/overview`)
     await waitFor(`document.body.textContent.includes(${JSON.stringify('Lead: '+member.name)})`,'own initiative detail')
     assert.deepEqual(errors,[],'Live flows must not raise browser exceptions')

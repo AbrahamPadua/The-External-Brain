@@ -27,7 +27,18 @@ async function publicRead(table,columns) {
   return response.json()
 }
 await publicRead('initiative_catalog','id,execution_plan,project_idea_id,proposer_id,proposer_name')
-await publicRead('project_idea_catalog','id,title,summary,category,execution_plan,motivation,proposer_id,proposer_name,initiative_id')
-const privateResponse=await fetch(`${base}/rest/v1/idea_lead_requests?select=id,message&limit=1`,{headers})
-assert.ok([401,403].includes(privateResponse.status),'Applicant notes must not be publicly readable')
-console.log('PASS (hosted, read-only): migrations 025/026 catalog columns accessible to visitors; applicant notes denied to anonymous callers.')
+const references=await fetch(`${base}/rest/v1/initiative_catalog?select=id&project_idea_id=not.is.null&limit=1`,{headers})
+assert.equal(references.status,200,'Public initiatives must remain readable')
+assert.deepEqual(await references.json(),[],'Visitors must not receive original idea references')
+for(const [table,columns] of [['project_idea_catalog','id,title,summary,execution_plan,motivation'],['idea_lead_requests','id,message']]) {
+  const response=await fetch(`${base}/rest/v1/${table}?select=${columns}&limit=1`,{headers})
+  assert.ok([401,403].includes(response.status),`${table} must deny anonymous reads (HTTP ${response.status}); apply migration 027`)
+  assert.equal((await response.json()).code,'42501',`${table} must deny access rather than merely have no rows`)
+}
+// Supabase's existing default table grants may allow SELECT while proposal RLS
+// filters every row. Both an explicit privilege denial and no rows are private.
+const proposals=await fetch(`${base}/rest/v1/proposals?select=id,content,decision_reason&limit=1`,{headers})
+assert.ok([200,401,403].includes(proposals.status),'Raw proposal privacy check failed')
+if(proposals.status===200)assert.deepEqual(await proposals.json(),[],'Raw proposals and review feedback must remain private')
+else assert.equal((await proposals.json()).code,'42501','Raw proposals must deny access')
+console.log('PASS (hosted, read-only): public initiatives readable without original idea references; migration 027 denies anonymous project ideas and applicant notes; raw proposals remain private.')

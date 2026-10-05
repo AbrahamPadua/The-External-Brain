@@ -47,4 +47,34 @@ For full browser flows, start Vite on `127.0.0.1:5174` and run `node scripts/smo
 
 The broader source suite was also run with two workers: 222 tests passed and two existing tests failed. The imported-title triple-encoding test used unchanged code; the workspace-loader test also failed with a copy of the pre-feature `main.tsx`. These failures predate this feature. The standalone import-validator fixtures are run with Node, rather than included as a Vitest suite.
 
-After deployment, check the live public catalog tabs and idea deep links. Authenticated live smoke tests require designated approved applicant and Research accounts: submit one idea, approve it without a team, request to lead, accept it, and confirm proposer credit and only the accepted applicant's membership. Repeat with the own-initiative submission action. The automated complete-flow smoke tests use fictional local data; no real-member submissions are created by these scripts.
+After deployment, check the live public catalog tabs and idea deep links. Authenticated live smoke tests require designated approved applicant and Research accounts: submit one idea, approve it without a team, request to lead, accept it, and confirm proposer credit and only the accepted applicant's membership. Repeat with the own-initiative submission action. The local `smoke-project-ideas.mjs` check uses fictional data and creates no production submissions.
+
+For explicitly authorized production checks using a designated disposable member account, run from `app/`:
+
+```text
+node scripts/check-project-ideas-live-setup.mjs
+node scripts/prepare-project-ideas-live.mjs --member-email <disposable-email> --temporary-password
+```
+
+The preparer creates `setup.sql`, `cleanup.sql`, and `fixture.json` under the git-ignored `smoke-private/project-ideas-<run>/` directory. It creates no hosted data itself and prints only local paths. The administrator runs the complete setup SQL in Supabase SQL Editor. Setup temporarily approves the designated member and, when requested, sets a random test password; it stores the prior password hash and standing in an administrator-only schema for restoration. Alternatively, use `--password-file <private-file>` with an existing password to leave authentication settings unchanged. Two confirmed email/password fixture accounts are created without sending emails, with Research access granted only to the generated reviewer. The preparer generates and verifies bcrypt hashes using the actual pgcrypto extension in local PGlite; hosted SQL contains those hashes and calls no pgcrypto functions. RLS remains enabled.
+
+Then run:
+
+```text
+node scripts/smoke-project-ideas-live.mjs ../smoke-private/project-ideas-<run>/fixture.json --probe
+node scripts/smoke-project-ideas-live.mjs ../smoke-private/project-ideas-<run>/fixture.json
+```
+
+The full check uses legitimate password sessions in an isolated headless Chrome profile to exercise the deployed proposal, catalog, Home, and Research UI. It checks both submission actions, draft/resubmission preservation, anonymous visibility, private applicant notes, declines, suspended applicants, competing requests, retry safety, proposer credit and notifications, exact lead membership, and no immediate HP/reporting. All mutations target exact fixture account IDs and two unique titles authored by the designated member. It never acts on another member's queue entries or starts a reporting cycle. Test sessions are signed out when the script finishes. A private result file records only the fixture IDs and result.
+
+Session changes force a new document load: a hash-only navigation would retain the previous document and skip the new session initializer. Use `--browser-probe` to check authenticated page loading without creating submissions. If a run stops during the draft/submission/changes-requested form stage, `--resume` continues that exact fixture proposal without creating a duplicate. Later stages require completing or cleaning the existing run before preparing another.
+
+Afterward, the administrator runs `cleanup.sql` in SQL Editor, then run:
+
+```text
+node scripts/smoke-project-ideas-live.mjs ../smoke-private/project-ideas-<run>/fixture.json --verify-cleanup
+```
+
+Cleanup removes the run's proposals, initiatives, memberships, requests, and associated fixture notifications; restores the designated member's authentication and standing; revokes the fixture Research grant; and suspends/bans the two generated accounts. It retains immutable audit records and their referenced identities, and wipes the saved credential backup after restoration. Cleanup refuses to delete projects if other members have applied/joined or if any tasks, HP, documents, or weekly obligations exist. The offline SQL check verifies real password hashing, setup without hosted crypto functions or plaintext passwords, repeated setup/cleanup, restoration, privacy, and these refusal cases.
+
+Authenticated checks against the deployed application passed on October 5, 2026. They confirmed both full flows, draft/resubmission behavior, public proposer credit and private notes, decline feedback, suspended-account rejection, competing applicants, one accepted lead membership, idempotent decisions/notifications, retained idea links and content, and zero immediate HP events or obligations. The operator then applied cleanup; the live check confirmed that both test catalog entries were removed and the temporary credentials were disabled. Cleanup restores the designated member's prior password and standing, and revokes the generated Research grant. RLS remained enabled throughout; immutable audit records are retained by design.

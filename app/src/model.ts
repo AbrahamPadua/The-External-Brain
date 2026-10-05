@@ -1,6 +1,6 @@
 export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
 export type ProposalPurpose = 'own_initiative' | 'project_idea'
-export const proposalPurposeLabel = (purpose?: ProposalPurpose) => purpose === 'project_idea' ? 'Project idea' : 'Proposed initiative'
+export const proposalPurposeLabel = (purpose?: ProposalPurpose) => purpose === 'project_idea' ? 'Brainstorm Genesis' : 'Proposed initiative'
 export const IDEA_LEAD_NOTE_MAX = 2000
 export type ProjectIdea = { id:string; title:string; abstract:string; category:string; plan:string; motivation:string; proposerId:string; proposerName:string; initiativeId?:string }
 export type Person = { id: string; name: string; email: string; status: AccountStatus; roles: string[]; major?: string; interests?: string }

@@ -159,9 +159,9 @@ async function main() {
       await setValue(field('Abstract'),abstract)
       await setValue(field('Execution plan'),plan)
       await setValue(field('Motivation'),'Too short')
-      assert.equal(await evaluate(`${hasButton('Submit a project idea')}||${hasButton('Submit to lead this project')}`),false,'Both actions must enforce motivation requirements')
+      assert.equal(await evaluate(`${hasButton('Submit to Brainstorm Genesis')}||${hasButton('Submit to lead this project')}`),false,'Both actions must enforce motivation requirements')
       await setValue(field('Motivation'),motivation)
-      await waitFor(hasButton('Submit a project idea'),'both valid submission actions')
+      await waitFor(hasButton('Submit to Brainstorm Genesis'),'both valid submission actions')
       assert.equal(await evaluate(hasButton('Submit to lead this project')),true)
     }
     const proposal=async title=> {
@@ -185,7 +185,7 @@ async function main() {
       ideaId=previous[0].id
       console.log(`Resuming the existing fixture proposal (${previous[0].status}).`)
       if(previous[0].status==='draft') {
-        await fillProposal(f.titles[0]);await click('Submit a project idea')
+        await fillProposal(f.titles[0]);await click('Submit to Brainstorm Genesis')
         await waitFor(`document.querySelector('.dashboard-proposals')`,'resumed draft submission')
       }
     } else {
@@ -203,8 +203,8 @@ async function main() {
       await navigate(`new-proposal/${ideaId}`)
       await waitFor(`document.querySelector('form.card input')`,'restored draft')
       assert.equal(await evaluate(`${field('Execution plan')}.value`),plan,'Draft content must survive')
-      await click('Submit a project idea')
-      await waitFor(`document.querySelector('.dashboard-proposals')?.textContent.includes('Project idea')`,'submitted idea label')
+      await click('Submit to Brainstorm Genesis')
+      await waitFor(`document.querySelector('.dashboard-proposals')?.textContent.includes('Brainstorm Genesis')`,'submitted idea label')
     }
     const submitted=await proposal(f.titles[0])
     assert.equal(submitted.purpose,'project_idea')
@@ -217,12 +217,12 @@ async function main() {
     const saved=await proposal(f.titles[0])
     assert.equal(saved.purpose,'project_idea');assert.ok(saved.decision_reason)
     await navigate(`new-proposal/${ideaId}`)
-    await waitFor(hasButton('Submit a project idea'),'resubmission action')
-    await click('Submit a project idea')
+    await waitFor(hasButton('Submit to Brainstorm Genesis'),'resubmission action')
+    await click('Submit to Brainstorm Genesis')
     await waitFor(`document.querySelector('.dashboard-proposals')`,'resubmitted idea')
     await visit(research,'')
     const ideaCard=card('.dashboard-proposal-queue .card',f.titles[0])
-    await waitFor(`(${ideaCard})?.textContent.includes('Project idea')`,'Research idea queue')
+    await waitFor(`(${ideaCard})?.textContent.includes('Brainstorm Genesis')`,'Research idea queue')
     await click('Approve & publish idea',ideaCard)
     await waitFor(`!(${ideaCard})`,'published idea decision')
     assert.equal((await rows(research,'initiatives',{proposal_id:ideaId})).length,0,'Approving an idea must not create a team')

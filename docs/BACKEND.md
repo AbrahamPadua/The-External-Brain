@@ -1,6 +1,6 @@
 # The External Brain backend contract
 
-Apply ALL numbered files in `supabase/migrations/` in order in a new Supabase project. Later migrations supersede the initial policies and commands; applying only the first file is unsafe. No migration contains project credentials. The migration set is `001`–`027`. The operator applied `025` and `026` on October 4, 2026, and `027` on October 5. Apply all three migrations before deploying the current project-ideas frontend. Migration `027` restricts project ideas to currently approved members while preserving public initiative access and proposer credit. See [Project ideas](PROJECT-IDEAS.md) for the contract and verification steps.
+Apply ALL numbered files in `supabase/migrations/` in order in a new Supabase project. Later migrations supersede the initial policies and commands; applying only the first file is unsafe. No migration contains project credentials. The migration set is `001`–`027`. The operator applied `025` and `026` on October 4, 2026, and `027` on October 5. Apply all three migrations before deploying the current project-ideas frontend. Migration `027` restricts project ideas to currently approved members while preserving public initiative access and proposer credit. See [Brainstorm Genesis](PROJECT-IDEAS.md) for the contract and verification steps.
 
 ## Client contract
 

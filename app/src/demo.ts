@@ -330,7 +330,7 @@ const handlers: Record<string, Handler> = {
     }
     if (decision === 'approved') {
       if (req.purpose === 'project_idea') {
-        audit(d, me, 'proposal.approve', `Approved project idea "${req.title}" for the catalog`)
+        audit(d, me, 'proposal.approve', `Published "${req.title}" to Brainstorm Genesis`)
         return
       }
       const initiative = initiativeFromProposal(d,req,req.userId)

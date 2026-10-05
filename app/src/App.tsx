@@ -1335,9 +1335,9 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
       <div className="proposal-submit-options">
         <div>
           <button type="button" className="btn" disabled={ctx.busy || !ready} aria-describedby="submit-idea-hint" onClick={() => send('submitted','project_idea')}>
-            <Send size={16} /> Submit a project idea
+            <Send size={16} /> Submit to Brainstorm Genesis
           </button>
-          <p id="submit-idea-hint" className="field-hint">If approved, this will appear in the catalog for other members to lead. You won’t be added to a team.</p>
+          <p id="submit-idea-hint" className="field-hint">If approved, this will appear in Brainstorm Genesis for other members to lead. You won’t be added to a team.</p>
         </div>
         <div>
           <button type="button" className="btn" disabled={ctx.busy || !ready} aria-describedby="submit-lead-hint" onClick={() => send('submitted','own_initiative')}>
@@ -2650,7 +2650,7 @@ function IdeaCatalogCard({ idea }: { idea: ProjectIdea }) {
     <h3>{idea.title}</h3>
     <p className="idea-card-abstract">{idea.abstract}</p>
     <p className="muted">Proposed by {idea.proposerName || 'Member'}</p>
-    <span className="field-hint">View project idea →</span>
+    <span className="field-hint">View idea →</span>
   </a>
 }
 
@@ -2689,7 +2689,7 @@ function PageProjectIdea({ ctx }: { ctx: Ctx }) {
   if (!idea) return <NotFound />
   const pending = ctx.data.requests.some(r => r.kind === 'idea_lead' && r.proposalId === idea.id && r.userId === ctx.userId && r.status === 'pending')
   return <div className="section">
-    <p className="muted"><a href="#/catalog/project-ideas"><ArrowLeft size={13} /> Project ideas</a></p>
+    <p className="muted"><a href="#/catalog/project-ideas"><ArrowLeft size={13} /> Brainstorm Genesis</a></p>
     <div className="between"><h1>{idea.title}</h1><Pill tone={idea.initiativeId ? 'info' : 'good'}>{idea.initiativeId ? 'Initiative started' : 'Available to lead'}</Pill></div>
     <div className="card">
       <ProjectIdeaContent idea={idea} />
@@ -2706,7 +2706,8 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
   const [category, setCategory] = useState('All')
   const [sort, setSort] = useState('asc')
   const ideasTab = ctx.route.parts[1] === 'project-ideas'
-  const noun = ideasTab ? 'project ideas' : 'initiatives'
+  const noun = ideasTab ? 'ideas' : 'initiatives'
+  const searchTarget = ideasTab ? 'Brainstorm Genesis' : noun
 
   const allowed = useMemo(() => {
     return ideasTab ? (ctx.approved ? (ctx.data.projectIdeas ?? []).filter(i => !i.initiativeId) : []) : ctx.data.initiatives
@@ -2743,20 +2744,20 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
-          {ctx.approved ? 'Neuro Network initiatives and project ideas at UC San Diego. Project ideas are available to current members.' : 'Neuro Network initiatives at UC San Diego. Anyone can browse these initiatives.'}
+          {ctx.approved ? 'Explore Neuro Network initiatives and Brainstorm Genesis at UC San Diego. Brainstorm Genesis is available to current members.' : 'Neuro Network initiatives at UC San Diego. Anyone can browse these initiatives.'}
         </p>
       </div>
       <div className="tabs" role="tablist" aria-label="Catalog">
         <a role="tab" aria-selected={!ideasTab} className={`tab ${!ideasTab ? 'active' : ''}`} href="#/catalog/initiatives">Initiatives</a>
-        {ctx.approved ? <a role="tab" aria-selected={ideasTab} className={`tab ${ideasTab ? 'active' : ''}`} href="#/catalog/project-ideas">Project ideas</a> : null}
+        {ctx.approved ? <a role="tab" aria-selected={ideasTab} className={`tab ${ideasTab ? 'active' : ''}`} href="#/catalog/project-ideas">Brainstorm Genesis</a> : null}
       </div>
       <div className="catalog-toolbar">
         <div className="catalog-toolbar-main">
           <input
             type="search"
             className="catalog-search"
-            placeholder={`Search ${noun}`}
-            aria-label={`Search ${noun}`}
+            placeholder={`Search ${searchTarget}`}
+            aria-label={`Search ${searchTarget}`}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -2772,7 +2773,7 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
                 className="catalog-select"
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                aria-label={`Sort ${noun}`}
+                aria-label={`Sort ${searchTarget}`}
               >
                 <option value="asc">Name A-Z</option>
                 <option value="desc">Name Z-A</option>
@@ -2804,7 +2805,7 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       </div>
       <div className="catalog-results-header">
         <span className="catalog-count muted">
-          {list.length} {list.length === 1 ? (ideasTab ? 'project idea' : 'initiative') : noun} found
+          {list.length} {list.length === 1 ? (ideasTab ? 'idea' : 'initiative') : noun} found
         </span>
       </div>
       {list.length ? (
@@ -3205,7 +3206,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
-          {ini.proposerName || ini.projectIdeaId ? <span className="muted">Idea proposed by {ini.proposerName || 'Member'}{ctx.approved && ini.projectIdeaId ? <> · <a href={`#/project-idea/${ini.projectIdeaId}`}>Original project idea</a></> : null}</span> : null}
+          {ini.proposerName || ini.projectIdeaId ? <span className="muted">Idea proposed by {ini.proposerName || 'Member'}{ctx.approved && ini.projectIdeaId ? <> · <a href={`#/project-idea/${ini.projectIdeaId}`}>Original Brainstorm Genesis proposal</a></> : null}</span> : null}
           <HpBar hp={ini.hp} />
         </div>
       </div>
@@ -3441,7 +3442,7 @@ function ProposalQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
               ctx={ctx}
               approveLabel={r.purpose === 'project_idea' ? 'Approve & publish idea' : 'Approve & create initiative'}
               onApprove={() => ctx.run('decideProposal',
-                { requestId: r.id, decision: 'approved' }, r.purpose === 'project_idea' ? 'Project idea published.' : 'Initiative created.')}
+                { requestId: r.id, decision: 'approved' }, r.purpose === 'project_idea' ? 'Published to Brainstorm Genesis.' : 'Initiative created.')}
               onReject={(fb) => ctx.run('decideProposal',
                 { requestId: r.id, decision: 'rejected', feedback: fb }, 'Proposal declined.')}
               onChanges={(fb) => ctx.run('decideProposal',
@@ -3475,7 +3476,7 @@ function MyProposals({ mine }: { mine: Request[] }) {
             {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
             {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
             {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
-            <p className="muted">{r.status === 'submitted' ? 'Next: Research will review this proposal. Your submitted content is shown above.' : editable ? 'Next: you can continue writing and submit to Research.' : r.status === 'approved' ? r.purpose === 'project_idea' ? r.initiativeId ? 'Your idea became an initiative. Your original proposal and credit remain available.' : 'Your approved idea is in the catalog. You have no team or reporting duties for it unless you request to lead and Research approves.' : 'Next: open your project and begin work.' : 'You can use the decision feedback to propose another project.'}</p>
+            <p className="muted">{r.status === 'submitted' ? 'Next: Research will review this proposal. Your submitted content is shown above.' : editable ? 'Next: you can continue writing and submit to Research.' : r.status === 'approved' ? r.purpose === 'project_idea' ? r.initiativeId ? 'Your idea became an initiative. Your original proposal and credit remain available.' : 'Your approved idea is in Brainstorm Genesis. You have no team or reporting duties for it unless you request to lead and Research approves.' : 'Next: open your project and begin work.' : 'You can use the decision feedback to propose another project.'}</p>
             {editable ? (
               <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
                 {r.status === 'draft' ? 'Continue draft' : 'Revise and resubmit'}
@@ -3498,7 +3499,7 @@ function IdeaLeadQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
       <h3>{r.title}</h3>
       <p><strong>Applicant:</strong> {ctx.personName(r.userId)}</p>
       <p className="idea-lead-note"><strong>Interest and availability:</strong> {r.body}</p>
-      {idea ? <details><summary>Approved project idea</summary><ProjectIdeaContent idea={idea} /><a href={`#/project-idea/${idea.id}`}>Open project idea</a></details> : <p>Approved proposal unavailable.</p>}
+      {idea ? <details><summary>Approved Brainstorm Genesis proposal</summary><ProjectIdeaContent idea={idea} /><a href={`#/project-idea/${idea.id}`}>Open Brainstorm Genesis proposal</a></details> : <p>Approved proposal unavailable.</p>}
       {idea && !idea.initiativeId ? <DecisionForm ctx={ctx} approveLabel="Approve lead & start initiative"
         onApprove={() => ctx.run('decideIdeaLead',{requestId:r.id,decision:'approved'},'Initiative started with the approved lead.')}
         onReject={feedback => ctx.run('decideIdeaLead',{requestId:r.id,decision:'rejected',feedback},'Lead request declined.')} /> : null}
@@ -3894,13 +3895,13 @@ function PageNotifications({ ctx }: { ctx: Ctx }) {
       body = p.approved ? 'Your request to join the initiative was approved.' : 'Your request to join the initiative was declined.'
     } else if (n.kind === 'proposal_decided') {
       title = 'Proposal decided'
-      body = <span>Your {p.purpose === 'project_idea' ? 'project idea' : 'proposal'} is now {statusLabel(p.status)}. {p.purpose === 'project_idea' && p.status === 'approved' ? <a href={`#/project-idea/${p.proposal_id}`}>View approved idea</a> : <a href="#/">View on Home</a>}</span>
+      body = <span>Your {p.purpose === 'project_idea' ? 'Brainstorm Genesis proposal' : 'proposal'} is now {statusLabel(p.status)}. {p.purpose === 'project_idea' && p.status === 'approved' ? <a href={`#/project-idea/${p.proposal_id}`}>View approved idea</a> : <a href="#/">View on Home</a>}</span>
     } else if (n.kind === 'idea_lead_decided') {
       title = 'Request to lead decided'
       body = <span>{p.status === 'approved' ? 'Your request to lead was approved.' : p.status === 'taken' ? 'Taken up by another member.' : 'Your request to lead was declined.'} {p.initiative_id ? <a href={`#/initiative/${p.initiative_id}/overview`}>View initiative</a> : <a href="#/">View feedback on Home</a>}</span>
     } else if (n.kind === 'project_idea_started') {
       title = 'Your idea became an initiative'
-      body = <span>A member is now leading your project idea. <a href={`#/initiative/${p.initiative_id}/overview`}>View initiative</a></span>
+      body = <span>A member is now leading your idea from Brainstorm Genesis. <a href={`#/initiative/${p.initiative_id}/overview`}>View initiative</a></span>
     } else if (n.kind === 'review_assigned') {
       title = 'Review assigned'
       const obl = ctx.data.obligations.find(o => o.id === p.obligation_id)

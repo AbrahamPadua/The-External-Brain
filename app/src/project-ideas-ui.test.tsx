@@ -36,7 +36,7 @@ const button = (text:string) => [...host.querySelectorAll('button')].find(b => b
 const click = async (text:string) => act(async () => {button(text).click();await settle()})
 afterEach(async () => {if(root)await act(async()=>root!.unmount());root=undefined;host?.remove();vi.restoreAllMocks()})
 
-it.each<[string,ProposalPurpose]>([['Submit a project idea','project_idea'],['Submit to lead this project','own_initiative']])('explicitly submits the same saved content using %s', async (label,purpose) => {
+it.each<[string,ProposalPurpose]>([['Submit to Brainstorm Genesis','project_idea'],['Submit to lead this project','own_initiative']])('explicitly submits the same saved content using %s', async (label,purpose) => {
   const data = draftData()
   const onAction = await show(data,'alex','#/new-proposal/draft')
   expect(host.textContent).toContain('New project proposal')
@@ -54,7 +54,7 @@ it.each<[string,ProposalPurpose]>([['Submit a project idea','project_idea'],['Su
 
 it.each([{abstract:'short'},{plan:'short'},{motivation:Array(149).fill('word').join(' ')}])('requires the same fields before either submission: %j', async invalid => {
   await show(draftData(invalid),'alex','#/new-proposal/draft')
-  expect(button('Submit a project idea').disabled).toBe(true)
+  expect(button('Submit to Brainstorm Genesis').disabled).toBe(true)
   expect(button('Submit to lead this project').disabled).toBe(true)
   expect(button('Save draft').disabled).toBe(false)
 })
@@ -63,7 +63,7 @@ it.each(['changes_requested','draft'])('shows the prior purpose and feedback on 
   const data = draftData()
   Object.assign(data.requests[0],{status,purpose:'project_idea',feedback:'Explain the timeline.'})
   const onAction = await show(data,'alex','#/new-proposal/draft')
-  expect(host.textContent).toContain('Previously submitted as: Project idea')
+  expect(host.textContent).toContain('Previously submitted as: Brainstorm Genesis')
   expect(host.textContent).toContain('Explain the timeline.')
   await click('Save draft')
   expect(onAction).toHaveBeenCalledWith('createProposal',expect.objectContaining({...proposal,status:'draft'}))
@@ -75,12 +75,12 @@ it('labels both purposes in the Research queue and My proposals', async () => {
   data = await demoAction(data,'alex','createProposal',{...proposal,purpose:'own_initiative',status:'submitted'})
   await show(data,'maya','#/')
   const queue = host.querySelector('.dashboard-proposal-queue')!
-  expect(queue.textContent).toContain('Project idea')
+  expect(queue.textContent).toContain('Brainstorm Genesis')
   expect(queue.textContent).toContain('Proposed initiative')
   expect(queue.textContent).toContain('Approve & publish idea')
   expect(queue.textContent).toContain('Approve & create initiative')
   await show(data,'alex','#/')
-  expect(host.querySelector('.dashboard-proposals')?.textContent).toContain('Project idea')
+  expect(host.querySelector('.dashboard-proposals')?.textContent).toContain('Brainstorm Genesis')
   expect(host.querySelector('.dashboard-proposals')?.textContent).toContain('Proposed initiative')
 })
 
@@ -96,7 +96,7 @@ it.each<AccountStatus|null>([null,'pending','rejected','suspended'])('hides the 
     expect(host.textContent).toContain('An approved account is needed here')
     expect(host.querySelector('.project-idea-content')).toBeNull()
     expect(host.querySelector('.idea-catalog-card')).toBeNull()
-    expect(host.querySelector('input[aria-label="Search project ideas"]')).toBeNull()
+    expect(host.querySelector('input[aria-label="Search Brainstorm Genesis"]')).toBeNull()
     for(const privateContent of [proposal.title,proposal.abstract,proposal.plan,proposal.motivation,'Proposed by Alex Rivera'])expect(host.textContent).not.toContain(privateContent)
     expect(host.querySelector('a[href="#/catalog/project-ideas"]')).toBeNull()
     expect([...host.querySelectorAll('button')].map(b=>b.textContent)).not.toContain('Request to lead')
@@ -110,7 +110,7 @@ it('provides member catalog tabs, approved content and proposer credit without e
   await show(data,'sam','#/catalog')
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Initiatives')
   await show(data,'sam','#/catalog/project-ideas')
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Project ideas')
+  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Brainstorm Genesis')
   expect(host.querySelector(`a[href="#/project-idea/${id}"]`)?.textContent).toContain(proposal.title)
   expect(host.textContent).not.toContain('Private draft title')
   expect(host.textContent).not.toContain('Private applicant note')
@@ -136,7 +136,7 @@ it('shows Research the private lead queue and shows each applicant only their ow
   const onAction = await show(data,'maya','#/')
   expect(host.querySelector('.dashboard-lead-queue')?.textContent).toContain('Sam Patel')
   expect(host.querySelector('.dashboard-lead-queue')?.textContent).toContain('I can work weekends')
-  expect(host.querySelector('.dashboard-lead-queue')?.textContent).toContain('Approved project idea')
+  expect(host.querySelector('.dashboard-lead-queue')?.textContent).toContain('Approved Brainstorm Genesis proposal')
   await act(async()=>{host.querySelector<HTMLButtonElement>('.dashboard-lead-queue .btn')!.click();await settle()})
   expect(onAction).toHaveBeenCalledWith('decideIdeaLead',expect.objectContaining({decision:'approved'}))
   await show(data,'sam','#/')
@@ -156,7 +156,7 @@ it('shows Research the private lead queue and shows each applicant only their ow
   expect(host.textContent).toContain('Idea proposed by Alex Rivera')
   expect(host.querySelector(`a[href="#/project-idea/${id}"]`)).toBeNull()
   await show(data,'alex',`#/initiative/${initiative.id}/overview`)
-  expect(host.querySelector(`a[href="#/project-idea/${id}"]`)?.textContent).toBe('Original project idea')
+  expect(host.querySelector(`a[href="#/project-idea/${id}"]`)?.textContent).toBe('Original Brainstorm Genesis proposal')
   await show(data,null,`#/project-idea/${id}`)
   expect(host.textContent).toContain('An approved account is needed here')
   expect(host.querySelector(`a[href="#/initiative/${initiative.id}/overview"]`)).toBeNull()
@@ -174,7 +174,7 @@ it('sorts and filters only available approved ideas by discipline and proposer s
   const titles = () => [...host.querySelectorAll('.idea-catalog-card h3')].map(h=>h.textContent)
   expect(titles()).toEqual(['Alpha experiment','Zebra experiment'])
   await act(async()=>{
-    const sort=host.querySelector<HTMLSelectElement>('select[aria-label="Sort project ideas"]')!
+    const sort=host.querySelector<HTMLSelectElement>('select[aria-label="Sort Brainstorm Genesis"]')!
     sort.value='desc';sort.dispatchEvent(new Event('change',{bubbles:true}));await settle()
   })
   expect(titles()).toEqual(['Zebra experiment','Alpha experiment'])

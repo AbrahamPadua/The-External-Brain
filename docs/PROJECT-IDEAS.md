@@ -1,6 +1,8 @@
-# Project ideas and requests to lead
+# Brainstorm Genesis and requests to lead
 
-The shared **New project proposal** form has identical fields and requirements for both purposes. Saving a draft retains its content and stored purpose. The explicit **Submit a project idea** or **Submit to lead this project** action chooses the submitted purpose; Enter in the form does not choose either action. Research can approve, decline, or request changes with feedback.
+**Brainstorm Genesis** is the member-only catalog of ideas for others to lead, previously labeled **Project ideas**. The existing hash routes, persisted `project_idea` purpose, and database/RPC names remain compatible.
+
+The shared **New project proposal** form has identical fields and requirements for both purposes. Saving a draft retains its content and stored purpose. The explicit **Submit to Brainstorm Genesis** or **Submit to lead this project** action chooses the submitted purpose; Enter in the form does not choose either action. Research can approve, decline, or request changes with feedback.
 
 `proposals.purpose` is `own_initiative` by default for existing proposals, or `project_idea`. The `save_proposal(text,text,jsonb,boolean,uuid)` signature is unchanged. Supply purpose in `p_content.purpose`; invalid purposes are rejected, and omitting it on an edit preserves the stored purpose. Submitted and approved proposals cannot be edited.
 
@@ -48,7 +50,7 @@ For full browser flows, start Vite on `127.0.0.1:5174` and run `node scripts/smo
 
 The broader source suite was also run with two workers: 222 tests passed and two existing tests failed. The imported-title triple-encoding test used unchanged code; the workspace-loader test also failed with a copy of the pre-feature `main.tsx`. These failures predate this feature. The standalone import-validator fixtures are run with Node, rather than included as a Vitest suite.
 
-After deployment, check that the public catalog has no Project ideas tab and that idea catalog/detail deep links require approval without disclosing content. Approved members should see both tabs and full idea content. Authenticated live smoke tests require designated approved applicant and Research accounts: submit one idea, approve it without a team, request to lead, accept it, and confirm proposer credit and only the accepted applicant's membership. Repeat with the own-initiative submission action. The local `smoke-project-ideas.mjs` check uses fictional data and creates no production submissions.
+After deployment, check that the public catalog has no Brainstorm Genesis tab and that idea catalog/detail deep links require approval without disclosing content. Approved members should see both tabs and full idea content. Authenticated live smoke tests require designated approved applicant and Research accounts: submit one idea, approve it without a team, request to lead, accept it, and confirm proposer credit and only the accepted applicant's membership. Repeat with the own-initiative submission action. The local `smoke-project-ideas.mjs` check uses fictional data and creates no production submissions.
 
 For explicitly authorized production checks using a designated disposable member account, run from `app/`:
 

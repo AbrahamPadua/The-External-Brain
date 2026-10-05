@@ -4,7 +4,7 @@ import App from './App'
 import WorkspaceLoader from './WorkspaceLoader'
 import {configured,supabase} from './client'
 import {loadLive,liveAction,rememberSignup} from './live'
-import {demoAction} from './demo'
+import {demoAction,normalizeDemo} from './demo'
 import {seed,normalizeProfileDetails,profileDetailsError} from './model'
 import type {Data,ProfileDetails} from './model'
 import './style.css'
@@ -12,7 +12,7 @@ import './studio.css'
 import './visual-update.css'
 const DEMO_KEY='open-labs-demo-v1'
 const blank:Data={people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[]}
-function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KEY)||'null');if(saved?.people&&saved?.initiatives&&saved?.audit)return saved}catch{/* recover corrupted local demo */}return structuredClone(seed)}
+function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KEY)||'null');if(saved?.people&&saved?.initiatives&&saved?.audit)return normalizeDemo(saved)}catch{/* recover corrupted local demo */}return normalizeDemo(structuredClone(seed))}
 /**
  * With shouldCreateUser:false, asking for a link for an address that has no
  * account comes back as otp_disabled / "Signups not allowed for otp". That is

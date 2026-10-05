@@ -1,4 +1,8 @@
 export type AccountStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+export type ProposalPurpose = 'own_initiative' | 'project_idea'
+export const proposalPurposeLabel = (purpose?: ProposalPurpose) => purpose === 'project_idea' ? 'Project idea' : 'Proposed initiative'
+export const IDEA_LEAD_NOTE_MAX = 2000
+export type ProjectIdea = { id:string; title:string; abstract:string; category:string; plan:string; motivation:string; proposerId:string; proposerName:string; initiativeId?:string }
 export type Person = { id: string; name: string; email: string; status: AccountStatus; roles: string[]; major?: string; interests?: string }
 export type TaskStatus = 'planned' | 'pending' | 'finished'
 /**
@@ -7,7 +11,7 @@ export type TaskStatus = 'planned' | 'pending' | 'finished'
  */
 export const TASK_DETAILS_MAX = 8000
 export type InitiativeTask = { id:string; title:string; description:string; status:TaskStatus; assigneeId?:string; dueAt?:string }
-export type Initiative = { id: string; title: string; abstract: string; leadId: string; leadName?: string; members: string[]; /** Team size when member ids are not visible (public catalog). */ memberCount?: number; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; executionPlan?: string; overviewHtml?: string; abstractHtml?: string; motivationHtml?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number }
+export type Initiative = { id: string; title: string; abstract: string; leadId: string; leadName?: string; members: string[]; /** Team size when member ids are not visible (public catalog). */ memberCount?: number; status: string; category: string; hp: number; tasks: InitiativeTask[]; motivation?: string; executionPlan?: string; overviewHtml?: string; abstractHtml?: string; motivationHtml?: string; coverObjectPath?: string; coverFallbackColor?: string; coverUrl?: string; coverPositionX?: number; coverPositionY?: number; projectIdeaId?:string; proposerId?:string; proposerName?:string; activatedAt?:string }
 /**
  * A document is a Roast Me ('rm' - constructive criticism of a team's work) or a
  * peer review. `targetMonday` is the Monday of the Los Angeles week an unsubmitted
@@ -27,10 +31,10 @@ export type Obligation = { id:string; initiativeId:string; assigneeId:string; ki
  * and simply render beside the document.
  */
 export type Thread = { id:string;documentId:string;version:number;quote:string;resolved:boolean;anchorStart?:number;anchorEnd?:number;messages:{authorId:string;body:string;at:string}[] }
-export type Request = { id:string;kind:'proposal'|'join';userId:string;initiativeId?:string;title:string;body:string;status:string;feedback?:string }
+export type Request = { id:string;kind:'proposal'|'join'|'idea_lead';userId:string;initiativeId?:string;proposalId?:string;purpose?:ProposalPurpose;title:string;body:string;status:string;feedback?:string }
 export type Audit = { id:string;at:string;actor:string;action:string;detail:string }
 export type Notification = { id:string;userId:string;kind:string;payload:any;createdAt:string;readAt?:string }
-export type Data = { people:Person[]; initiatives:Initiative[]; documents:DocumentRecord[]; obligations:Obligation[]; threads:Thread[]; requests:Request[]; audit:Audit[]; notifications?:Notification[]; cycles?:Cycle[] }
+export type Data = { people:Person[]; initiatives:Initiative[]; documents:DocumentRecord[]; obligations:Obligation[]; threads:Thread[]; requests:Request[]; projectIdeas?:ProjectIdea[]; audit:Audit[]; notifications?:Notification[]; cycles?:Cycle[] }
 export const uid=()=>crypto.randomUUID()
 export const seed:Data={
  people:[{id:'maya',name:'Maya Chen',email:'maya@example.test',status:'approved',roles:['research'],major:'Cognitive Science',interests:'Spatial audio, assistive technology, psychophysics'},{id:'alex',name:'Alex Rivera',email:'alex@example.test',status:'approved',roles:[],major:'Neuroscience',interests:'Movement and memory, literature synthesis'},{id:'jordan',name:'Jordan Park',email:'jordan@example.test',status:'pending',roles:[],major:'Bioengineering',interests:''},{id:'sam',name:'Sam Patel',email:'sam@example.test',status:'approved',roles:['operations'],major:'Data Science',interests:'Research operations, reproducibility'}],

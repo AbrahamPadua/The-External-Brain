@@ -35,12 +35,12 @@ import type {
 } from './model'
 import {
   seed, uid, imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError,
-  TASK_DETAILS_MAX,
+  TASK_DETAILS_MAX, IDEA_LEAD_NOTE_MAX,
 } from './model'
 import type { LedgerEvent } from './domain'
 import {
   appendLedgerEvent, reconcileReviewOutcome, replayHp, getReviewCycleBoundaries,
-  isMondayIso, losAngelesMonday,
+  isMondayIso, losAngelesMonday, parseLosAngelesLocal,
 } from './domain'
 import { ANCHOR_MAX, anchorError, normalizeText, textOfHtml } from './highlight'
 
@@ -116,9 +116,9 @@ export function readProposal(body: string): { category: string; abstract: string
   return { category: 'General', abstract: String(body ?? ''), plan: '', motivation: '' }
 }
 
-function normalize(d: Data): Data {
+export function normalizeDemo(d: Data): Data {
   const any = d as unknown as Record<string, unknown>
-  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'audit', 'notifications', 'cycles']) {
+  for (const k of ['people', 'initiatives', 'documents', 'obligations', 'threads', 'requests', 'projectIdeas', 'audit', 'notifications', 'cycles']) {
     if (!Array.isArray(any[k])) any[k] = []
   }
   d.people.forEach((p) => { if (!Array.isArray(p.roles)) p.roles = [] })
@@ -142,19 +142,30 @@ function normalize(d: Data): Data {
   d.documents.forEach((doc) => { if (!Array.isArray(doc.versions)) doc.versions = [] })
   // Legacy proposals used status 'pending'; the current flow is draft | submitted.
   d.requests.forEach((r) => {
-    if (r.kind === 'proposal' && r.status === 'pending') r.status = 'submitted'
+    if (r.kind === 'proposal') {
+      if (r.status === 'pending') r.status = 'submitted'
+      if (r.purpose !== 'project_idea') r.purpose = 'own_initiative'
+    }
   })
+  // Rebuild the public projection from approved proposals, including taken ideas
+  // so old detail links survive. Never project drafts or their review feedback.
+  const projected = new Map((d.projectIdeas ?? []).filter(i => !d.requests.some(r => r.id === i.id)).map(i => [i.id, i]))
+  for (const r of d.requests.filter(r => r.kind === 'proposal' && r.purpose === 'project_idea' && r.status === 'approved')) {
+    const content = readProposal(r.body)
+    projected.set(r.id, {id:r.id,title:r.title,...content,proposerId:r.userId,proposerName:nameOf(d,r.userId),initiativeId:r.initiativeId})
+  }
+  d.projectIdeas = [...projected.values()]
   return d
 }
 
 export function loadDemo(): Data {
   try {
     const raw = localStorage.getItem(DATA_KEY)
-    if (raw) return normalize(JSON.parse(raw) as Data)
+    if (raw) return normalizeDemo(JSON.parse(raw) as Data)
   } catch {
     /* corrupt or unavailable storage - fall back to the seed */
   }
-  return normalize(clone(seed))
+  return normalizeDemo(clone(seed))
 }
 
 export function saveDemo(data: Data): void {
@@ -215,6 +226,23 @@ function audit(d: Data, actor: Person | null, action: string, detail: string): v
   })
 }
 
+function notify(d: Data, userId: string, kind: string, payload: Record<string, unknown>): void {
+  (d.notifications ??= []).unshift({id:uid(),userId,kind,payload,createdAt:nowIso()})
+}
+
+function initiativeFromProposal(d: Data, req: Request, leadId: string): Initiative {
+  const {category, abstract, motivation, plan} = readProposal(req.body)
+  const isIdea = req.purpose === 'project_idea'
+  const initiative: Initiative = {
+    id:uid(),title:req.title,abstract,leadId,members:[leadId],status:'active',category,
+    motivation,overviewHtml:'',executionPlan:plan,hp:HP_START,tasks:[],activatedAt:nowIso(),
+    ...(isIdea ? {projectIdeaId:req.id,proposerId:req.userId,proposerName:nameOf(d,req.userId)} : {}),
+  }
+  d.initiatives.unshift(initiative)
+  req.initiativeId = initiative.id
+  return initiative
+}
+
 // --- action handlers ------------------------------------------------------
 
 type Ctx = { d: Data; actor: Person | null }
@@ -230,12 +258,14 @@ const handlers: Record<string, Handler> = {
     const category = String(p.category ?? '').trim() || 'General'
     const motivation = String(p.motivation ?? '').trim()
     const status = p.status === 'draft' ? 'draft' : 'submitted'
+    if (p.purpose !== undefined && !['own_initiative', 'project_idea'].includes(p.purpose)) deny('Invalid proposal purpose.')
     if (title.length < 3) deny('Give your initiative a title.')
     if (status === 'submitted') {
       if (abstract.length < 20) deny('Write a short abstract (at least 20 characters).')
       if (plan.length < 20) deny('Describe how the team would execute this (at least 20 characters).')
       const wordCount = motivation === '' ? 0 : motivation.split(/\s+/).length
       if (wordCount < 150) deny(`The motivation statement must be at least 150 words (currently ${wordCount}).`)
+      if (motivation.length > 20000) deny('Motivation must be 20000 characters or fewer.')
     }
     if (p.id) {
       const existing = need(
@@ -248,6 +278,7 @@ const handlers: Record<string, Handler> = {
       }
       existing.title = title
       existing.body = encodeProposal(category, abstract, plan, motivation)
+      existing.purpose = p.purpose ?? existing.purpose ?? 'own_initiative'
       existing.status = status
       if (status === 'submitted') existing.feedback = undefined
       audit(d, me, status === 'draft' ? 'proposal.save' : 'proposal.submit',
@@ -261,6 +292,7 @@ const handlers: Record<string, Handler> = {
       title,
       body: encodeProposal(category, abstract, plan, motivation),
       status,
+      purpose: p.purpose ?? 'own_initiative',
     }
     d.requests.unshift(req)
     audit(d, me, status === 'draft' ? 'proposal.save' : 'proposal.submit',
@@ -276,6 +308,7 @@ const handlers: Record<string, Handler> = {
     )
     if (req.status === 'approved' && p.decision === 'approved') return
     if (req.status !== 'submitted') deny('That proposal is not awaiting review.')
+    if (!['approved','rejected','changes_requested'].includes(p.decision)) deny('Pick a valid decision.')
     const decision =
       p.decision === 'approved' ? 'approved'
       : p.decision === 'changes_requested' ? 'changes_requested'
@@ -284,30 +317,23 @@ const handlers: Record<string, Handler> = {
     if ((decision === 'rejected' || decision === 'changes_requested') && !feedback) {
       deny('Add feedback so the proposer knows why.')
     }
+    if (decision === 'approved') {
+      if (!isApproved(d.people.find(person => person.id === req.userId))) deny('The proposer must be approved.')
+      if (readProposal(req.body).motivation.trim().split(/\s+/).filter(Boolean).length < 150) deny('Motivation must be at least 150 words before approval.')
+    }
     req.status = decision
     req.feedback = feedback || undefined
+    notify(d, req.userId, 'proposal_decided', {status:decision,purpose:req.purpose,proposal_id:req.id})
     if (decision === 'changes_requested') {
       audit(d, me, 'proposal.changes', `Requested changes on "${req.title}": ${feedback}`)
       return
     }
     if (decision === 'approved') {
-      const { category, abstract, motivation, plan } = readProposal(req.body)
-      const initiative: Initiative = {
-        id: uid(),
-        title: req.title,
-        abstract,
-        leadId: req.userId,
-        members: [req.userId],
-        status: 'active',
-        category,
-        motivation,
-        overviewHtml: '',
-        executionPlan: plan,
-        hp: HP_START,
-        tasks: [],
+      if (req.purpose === 'project_idea') {
+        audit(d, me, 'proposal.approve', `Approved project idea "${req.title}" for the catalog`)
+        return
       }
-      d.initiatives.unshift(initiative)
-      req.initiativeId = initiative.id
+      const initiative = initiativeFromProposal(d,req,req.userId)
       d.obligations.push({
         id: uid(),
         initiativeId: initiative.id,
@@ -321,6 +347,51 @@ const handlers: Record<string, Handler> = {
     } else {
       audit(d, me, 'proposal.reject', `Declined "${req.title}": ${feedback}`)
     }
+  },
+
+  requestIdeaLead: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isApproved(me)) deny('Your account must be approved before requesting to lead.')
+    const idea = need((d.projectIdeas ?? []).find(i => i.id === p.proposalId), 'Idea unavailable.')
+    if (idea.initiativeId) deny('Idea unavailable.')
+    const note = String(p.body ?? '').trim()
+    if (note.length < 10 || note.length > IDEA_LEAD_NOTE_MAX) deny('Interest and availability note must be 10 to 2000 characters.')
+    if (d.requests.some(r => r.kind === 'idea_lead' && r.proposalId === idea.id && r.userId === me.id && r.status === 'pending')) return
+    const req: Request = {id:uid(),kind:'idea_lead',proposalId:idea.id,userId:me.id,title:idea.title,body:note,status:'pending'}
+    d.requests.unshift(req)
+    audit(d,me,'idea_lead_requested',`Asked to lead "${idea.title}" [${idea.id}]`)
+  },
+
+  decideIdeaLead: ({ d, actor }, p) => {
+    const me = need(actor, 'Sign in first.')
+    if (!isResearch(me)) deny('Only Research can decide requests to lead.')
+    if (!['approved','rejected'].includes(p.decision)) deny('Pick a valid decision.')
+    const req = need(d.requests.find(r => r.kind === 'idea_lead' && r.id === p.requestId), 'Lead request not found.')
+    if (req.status !== 'pending') {
+      if ((p.decision === 'approved' && ['approved','taken'].includes(req.status)) || req.status === p.decision) return
+      deny('That lead request has already been decided.')
+    }
+    const proposal = need(d.requests.find(r => r.kind === 'proposal' && r.id === req.proposalId), 'Proposal not found.')
+    if (proposal.purpose !== 'project_idea' || proposal.status !== 'approved' || proposal.initiativeId) deny('Idea unavailable.')
+    const feedback = String(p.feedback ?? '').trim()
+    if (p.decision === 'rejected' && !feedback) deny('Add feedback so the applicant knows why.')
+    if (p.decision === 'approved' && !isApproved(d.people.find(person => person.id === req.userId))) deny('The applicant must be approved.')
+    req.status = p.decision
+    req.feedback = feedback || undefined
+    if (p.decision === 'approved') {
+      const initiative = initiativeFromProposal(d,proposal,req.userId)
+      req.initiativeId = initiative.id
+      for (const other of d.requests.filter(r => r.kind === 'idea_lead' && r.proposalId === proposal.id && r.status === 'pending')) {
+        other.status = 'taken'
+        other.initiativeId = initiative.id
+        notify(d,other.userId,'idea_lead_decided',{status:'taken',proposal_id:proposal.id,initiative_id:initiative.id})
+        audit(d,me,'idea_lead_taken',`"${proposal.title}" taken up by another member [${other.id}]`)
+      }
+      notify(d,proposal.userId,'project_idea_started',{proposal_id:proposal.id,initiative_id:initiative.id,lead_id:req.userId})
+      audit(d,me,'project_idea_started',`Started "${proposal.title}" [${initiative.id}] led by ${nameOf(d,req.userId)}; proposed by ${nameOf(d,proposal.userId)}`)
+    }
+    notify(d,req.userId,'idea_lead_decided',{status:req.status,proposal_id:proposal.id,initiative_id:req.initiativeId})
+    audit(d,me,'idea_lead_decided',`${req.status}: ${nameOf(d,req.userId)} for "${proposal.title}"${feedback ? `: ${feedback}` : ''}`)
   },
 
   requestJoin: ({ d, actor }, p) => {
@@ -1093,6 +1164,8 @@ const handlers: Record<string, Handler> = {
 
     if (!isBreak) {
       d.initiatives.filter(i => i.status === 'active').forEach(ini => {
+        // Newly activated projects begin under the same next-cycle rule as SQL.
+        if (ini.activatedAt && ini.activatedAt >= parseLosAngelesLocal(`${monday}T00:00`).toISOString()) return
         const lead = d.people.find(x => x.id === ini.leadId)
         if (!lead || lead.status !== 'approved') return
 
@@ -1201,7 +1274,7 @@ export async function demoAction(
   action: string,
   payload: any,
 ): Promise<Data> {
-  const d = normalize(clone(data))
+  const d = normalizeDemo(clone(data))
   const actor = userId ? d.people.find((p) => p.id === userId) ?? null : null
   const handler = handlers[action]
   if (!handler) deny(`Unknown action: ${action}`)
@@ -1212,5 +1285,5 @@ export async function demoAction(
     if (!isApproved(me)) deny('Your account must be approved.')
   }
   handler({ d, actor }, payload ?? {})
-  return d
+  return normalizeDemo(d)
 }

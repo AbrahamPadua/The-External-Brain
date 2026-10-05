@@ -16,18 +16,23 @@ import { useDraftPersistence } from './useDraftPersistence'
  * be open at SUBMISSION, when the draft is attached to the week's one RM
  * obligation and the existing deadline / HP / lead-only rules take over.
  *
- *   createProposal   { id?, title, abstract, category, plan, status:'draft'|'submitted' }
- *       Approved account drafts or submits an initiative proposal. Stored as a
+ *   createProposal   { id?, title, abstract, category, plan, motivation, purpose?, status:'draft'|'submitted' }
+ *       Approved account drafts or submits a project proposal. Stored as a
  *       Request(kind:'proposal') whose `title` is the initiative title and whose
  *       `body` is the JSON string `{"category","abstract","plan"}` (decode with
  *       readProposal from ./demo). `id` edits an existing draft / changes-requested
  *       proposal in place. `plan` is the execution plan. Only `submitted`
  *       proposals reach the Research queue.
  *   decideProposal   { requestId, decision:'approved'|'rejected'|'changes_requested', feedback? }
- *       Research only, on a `submitted` proposal. Approval creates the initiative +
+ *       Research only, on a `submitted` proposal. Own-initiative approval creates the initiative +
  *       lead membership + a first reporting-memo obligation. `feedback` required to
  *       reject or request changes; `changes_requested` returns it to the proposer
  *       to edit and resubmit.
+ *       Project-idea approval publishes it without creating a team.
+ *   requestIdeaLead  { proposalId, body }
+ *       Approved accounts send a private interest/availability note to Research.
+ *   decideIdeaLead   { requestId, decision:'approved'|'rejected', feedback? }
+ *       Research only. Approval starts one initiative; competing requests become taken.
  *   requestJoin      { initiativeId, body }
  *       Approved account asks to join a team. `body` is a short plain-text note.
  *   decideJoin       { requestId, decision:'approved'|'rejected', feedback? }
@@ -116,7 +121,7 @@ import { useDraftPersistence } from './useDraftPersistence'
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode, RefObject } from 'react'
-import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, Request, Thread, Notification } from './model'
+import type { Data, DocumentRecord, Initiative, Obligation, Person, ProfileDetails, ProjectIdea, ProposalPurpose, Request, Thread, Notification } from './model'
 import { Editor } from './Editor'
 import { DocumentImages } from './DocumentImages'
 import { Progress } from './Progress'
@@ -131,7 +136,7 @@ import {
 } from './domain'
 import {
   IMAGE_MIME_TYPES, imageFileError,
-  INTERESTS_MAX, MAJOR_MAX, NAME_MAX, TASK_DETAILS_MAX,
+  INTERESTS_MAX, MAJOR_MAX, NAME_MAX, TASK_DETAILS_MAX, IDEA_LEAD_NOTE_MAX, proposalPurposeLabel,
   normalizeProfileDetails, profileDetailsError,
 } from './model'
 import {
@@ -238,7 +243,7 @@ function relDue(iso: string): string {
 }
 
 function statusLabel(status:string):string {
-  return ({on_hold:'On hold',changes_requested:'Changes requested',pending:'Pending',submitted:'Submitted',draft:'Draft',complete:'Complete',missed:'Missed',active:'Active',archived:'Archived',approved:'Approved',rejected:'Rejected',waived:'Waived'} as Record<string,string>)[status] ?? status.replaceAll('_',' ')
+  return ({on_hold:'On hold',changes_requested:'Changes requested',pending:'Pending',submitted:'Submitted',draft:'Draft',complete:'Complete',missed:'Missed',active:'Active',archived:'Archived',approved:'Approved',rejected:'Rejected',waived:'Waived',taken:'Taken up by another member'} as Record<string,string>)[status] ?? status.replaceAll('_',' ')
 }
 function statusTone(s: string): string {
   switch (s) {
@@ -1281,21 +1286,24 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
   const [plan, setPlan] = useState(seeded?.plan ?? '')
   const [motivation, setMotivation] = useState(seeded?.motivation ?? '')
 
-  const send = async (status: 'draft' | 'submitted') => {
+  const send = async (status: 'draft' | 'submitted', purpose?: ProposalPurpose) => {
+    if (ctx.busy || (status === 'submitted' && (!ready || !purpose))) return
     const ok = await ctx.run(
       'createProposal',
-      { id: existing?.id, title: title.trim(), category, abstract: abstract.trim(), plan: plan.trim(), motivation: motivation.trim(), status },
+      { id: existing?.id, title: title.trim(), category, abstract: abstract.trim(), plan: plan.trim(), motivation: motivation.trim(), status, ...(purpose ? {purpose} : {}) },
       status === 'draft' ? 'Draft saved.' : 'Proposal submitted for Research review.',
     )
     if (ok) go('#/')
   }
 
   const wordCount = motivation.trim() === '' ? 0 : motivation.trim().split(/\s+/).length
-  const ready = title.trim().length >= 3 && abstract.trim().length >= 20 && plan.trim().length >= 20 && wordCount >= 150
+  const ready = title.trim().length >= 3 && abstract.trim().length >= 20 && plan.trim().length >= 20 && wordCount >= 150 && motivation.trim().length <= 20000
+  if (editId && (!existing || !['draft','changes_requested'].includes(existing.status))) return <NotFound />
   return (
-    <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault(); send('submitted') }}>
-      <h3>{existing ? 'Edit proposal' : 'Propose an initiative'}</h3>
-      {existing?.status === 'changes_requested' && existing.feedback ? (
+    <form className="card" onSubmit={(e: FormEvent) => { e.preventDefault() }}>
+      <h3>New project proposal</h3>
+      {existing && (existing.status === 'changes_requested' || existing.feedback || existing.purpose === 'project_idea') ? <p className="field-hint">{existing.status === 'changes_requested' || existing.feedback ? 'Previously submitted as:' : 'Saved purpose:'} <strong>{proposalPurposeLabel(existing.purpose)}</strong>. The submission action below determines its purpose.</p> : null}
+      {existing?.feedback ? (
         <p className="field-hint"><strong>Research asked for changes:</strong> {existing.feedback}</p>
       ) : null}
       <Field label="Working title">
@@ -1320,14 +1328,25 @@ function NewProposalForm({ ctx }: { ctx: Ctx }) {
       </Field>
       <Field label="Motivation" hint={`Why is this important? (150+ words required, currently ${wordCount})`}>
         <textarea
-          value={motivation} disabled={ctx.busy} onChange={(e) => setMotivation(e.target.value)}
+          value={motivation} maxLength={20000} disabled={ctx.busy} onChange={(e) => setMotivation(e.target.value)}
           style={{ minHeight: 200 }}
         />
       </Field>
+      <div className="proposal-submit-options">
+        <div>
+          <button type="button" className="btn" disabled={ctx.busy || !ready} aria-describedby="submit-idea-hint" onClick={() => send('submitted','project_idea')}>
+            <Send size={16} /> Submit a project idea
+          </button>
+          <p id="submit-idea-hint" className="field-hint">If approved, this will appear in the catalog for other members to lead. You won’t be added to a team.</p>
+        </div>
+        <div>
+          <button type="button" className="btn" disabled={ctx.busy || !ready} aria-describedby="submit-lead-hint" onClick={() => send('submitted','own_initiative')}>
+            <Send size={16} /> Submit to lead this project
+          </button>
+          <p id="submit-lead-hint" className="field-hint">If approved, you’ll become the initiative lead.</p>
+        </div>
+      </div>
       <div className="btn-row">
-        <button className="btn" disabled={ctx.busy || !ready}>
-          <Send size={16} /> {existing ? 'Resubmit' : 'Submit proposal'}
-        </button>
         <button
           type="button" className="btn ghost"
           disabled={ctx.busy || title.trim().length < 3}
@@ -2625,15 +2644,73 @@ function CatalogCard({ ctx, ini }: { ctx: Ctx; ini: Initiative }) {
   )
 }
 
+function IdeaCatalogCard({ idea }: { idea: ProjectIdea }) {
+  return <a className="card idea-catalog-card" href={`#/project-idea/${idea.id}`}>
+    <div className="row"><Pill>{idea.category}</Pill><Pill tone="good">Available to lead</Pill></div>
+    <h3>{idea.title}</h3>
+    <p className="idea-card-abstract">{idea.abstract}</p>
+    <p className="muted">Proposed by {idea.proposerName || 'Member'}</p>
+    <span className="field-hint">View project idea →</span>
+  </a>
+}
+
+function ProjectIdeaContent({ idea }: { idea: ProjectIdea }) {
+  return <div className="project-idea-content">
+    <p className="muted">Proposed by {idea.proposerName || 'Member'}</p>
+    <Pill>{idea.category}</Pill>
+    <section aria-label="Abstract"><h3>Abstract</h3><p>{idea.abstract}</p></section>
+    <section aria-label="Execution plan"><h3>Execution plan</h3><p>{idea.plan}</p></section>
+    <section aria-label="Motivation"><h3>Motivation</h3><p>{idea.motivation}</p></section>
+  </div>
+}
+
+function IdeaLeadForm({ ctx, idea }: { ctx: Ctx; idea: ProjectIdea }) {
+  const [open,setOpen] = useState(false)
+  const [note,setNote] = useState('')
+  if (!open) return <button type="button" className="btn" disabled={ctx.busy} onClick={() => setOpen(true)}><UserPlus size={16} /> Request to lead</button>
+  return <form className="stack" onSubmit={async e => {
+    e.preventDefault()
+    if (ctx.busy || note.trim().length < 10 || note.trim().length > IDEA_LEAD_NOTE_MAX) return
+    if (await ctx.run('requestIdeaLead',{proposalId:idea.id,body:note.trim()},'Request sent to Research.')) {setNote('');setOpen(false)}
+  }}>
+    <Field label="Your interest and availability" hint="Tell Research why you want to lead and when you can work on this project. A sentence or two is plenty.">
+      <textarea value={note} maxLength={IDEA_LEAD_NOTE_MAX} disabled={ctx.busy} onChange={e => setNote(e.target.value)} />
+    </Field>
+    <div className="btn-row">
+      <button className="btn" disabled={ctx.busy || note.trim().length < 10}>Send request to Research</button>
+      <button type="button" className="btn ghost" disabled={ctx.busy} onClick={() => setOpen(false)}>Cancel</button>
+    </div>
+  </form>
+}
+
+function PageProjectIdea({ ctx }: { ctx: Ctx }) {
+  const idea = (ctx.data.projectIdeas ?? []).find(i => i.id === ctx.route.parts[1])
+  if (!idea) return <NotFound />
+  const pending = ctx.approved && ctx.data.requests.some(r => r.kind === 'idea_lead' && r.proposalId === idea.id && r.userId === ctx.userId && r.status === 'pending')
+  return <div className="section">
+    <p className="muted"><a href="#/catalog/project-ideas"><ArrowLeft size={13} /> Project ideas</a></p>
+    <div className="between"><h1>{idea.title}</h1><Pill tone={idea.initiativeId ? 'info' : 'good'}>{idea.initiativeId ? 'Initiative started' : 'Available to lead'}</Pill></div>
+    <div className="card">
+      <ProjectIdeaContent idea={idea} />
+      {idea.initiativeId ? <a className="btn" href={`#/initiative/${idea.initiativeId}/overview`}>Open resulting initiative</a>
+        : !ctx.approved ? <p className="muted">{ctx.me ? 'Your account must be approved to request to lead.' : <><a href="#/signin">Sign in</a> with an approved account to request to lead.</>}</p>
+        : pending ? <Pill tone="warn">Lead request pending Research review</Pill>
+        : <IdeaLeadForm key={idea.id} ctx={ctx} idea={idea} />}
+    </div>
+  </div>
+}
+
 function PageCatalog({ ctx }: { ctx: Ctx }) {
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('active')
   const [category, setCategory] = useState('All')
   const [sort, setSort] = useState('asc')
+  const ideasTab = ctx.route.parts[1] === 'project-ideas'
+  const noun = ideasTab ? 'project ideas' : 'initiatives'
 
   const allowed = useMemo(() => {
-    return ctx.data.initiatives
-  }, [ctx.data.initiatives])
+    return ideasTab ? (ctx.data.projectIdeas ?? []).filter(i => !i.initiativeId) : ctx.data.initiatives
+  }, [ideasTab, ctx.data.projectIdeas, ctx.data.initiatives])
 
   const categoryList = useMemo(() => {
     const counts = new Map<string, number>()
@@ -2647,10 +2724,10 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
     const query = q.trim().toLowerCase()
     return allowed
       .filter((i) => {
-        if (status !== 'all' && i.status !== status) return false
+        if ('status' in i && status !== 'all' && i.status !== status) return false
         if (category !== 'All' && i.category !== category) return false
         if (!query) return true
-        const lead = leadDisplay(ctx, i)
+        const lead = 'leadId' in i ? leadDisplay(ctx, i) : i.proposerName
         return `${i.title} ${i.category} ${i.abstract} ${lead}`.toLowerCase().includes(query)
       })
       .sort((a, b) => {
@@ -2664,32 +2741,36 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Research catalog</h1>
         <p className="muted">
-          Every Neuro Network initiative at UC San Diego. Anyone can read this page.
+          Neuro Network initiatives and approved project ideas at UC San Diego. Anyone can read this page.
         </p>
+      </div>
+      <div className="tabs" role="tablist" aria-label="Catalog">
+        <a role="tab" aria-selected={!ideasTab} className={`tab ${!ideasTab ? 'active' : ''}`} href="#/catalog/initiatives">Initiatives</a>
+        <a role="tab" aria-selected={ideasTab} className={`tab ${ideasTab ? 'active' : ''}`} href="#/catalog/project-ideas">Project ideas</a>
       </div>
       <div className="catalog-toolbar">
         <div className="catalog-toolbar-main">
           <input
             type="search"
             className="catalog-search"
-            placeholder="Search initiatives"
-            aria-label="Search initiatives"
+            placeholder={`Search ${noun}`}
+            aria-label={`Search ${noun}`}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
           <div className="catalog-toolbar-actions">
-            <label className="catalog-filter-label">
+            {!ideasTab ? <label className="catalog-filter-label">
               <select className="catalog-select" aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value)}>
                 <option value="all">All statuses</option>
                 {['active', 'on_hold', 'completed', 'stopped', 'dead'].map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
-            </label>
+            </label> : null}
             <label className="catalog-filter-label">
               <select
                 className="catalog-select"
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                aria-label="Sort initiatives"
+                aria-label={`Sort ${noun}`}
               >
                 <option value="asc">Name A-Z</option>
                 <option value="desc">Name Z-A</option>
@@ -2721,17 +2802,17 @@ function PageCatalog({ ctx }: { ctx: Ctx }) {
       </div>
       <div className="catalog-results-header">
         <span className="catalog-count muted">
-          {list.length} {list.length === 1 ? 'initiative' : 'initiatives'} found
+          {list.length} {list.length === 1 ? (ideasTab ? 'project idea' : 'initiative') : noun} found
         </span>
       </div>
       {list.length ? (
         <div className="catalog-grid">
           {list.map((i) => (
-            <CatalogCard key={i.id} ctx={ctx} ini={i} />
+            'leadId' in i ? <CatalogCard key={i.id} ctx={ctx} ini={i} /> : <IdeaCatalogCard key={i.id} idea={i} />
           ))}
         </div>
       ) : (
-        <Empty>No initiatives match.</Empty>
+        <Empty>No {noun} match.</Empty>
       )}
     </div>
   )
@@ -2905,6 +2986,8 @@ function PageHome({ ctx }: { ctx: Ctx }) {
     decisions.push(<li key="r"><a href="#/assignments">{unreviewedRm.length} memo(s) need a reviewer</a></li>)
   }
   const proposalQueue = ctx.isResearch ? pendingProposals : []
+  const leadQueue = ctx.isResearch ? data.requests.filter(r => r.kind === 'idea_lead' && r.status === 'pending') : []
+  const myLeadRequests = data.requests.filter(r => r.kind === 'idea_lead' && r.userId === userId)
 
   return (
     <div className="dashboard">
@@ -2974,13 +3057,26 @@ function PageHome({ ctx }: { ctx: Ctx }) {
         </section>
       ) : null}
 
+      {leadQueue.length ? <section className="dashboard-section dashboard-lead-queue" aria-labelledby="lead-queue-heading">
+        <header className="dashboard-section-header">
+          <h2 id="lead-queue-heading"><UserPlus size={18} /> Requests to lead</h2>
+          <span className="dashboard-badge dashboard-badge-coral">{leadQueue.length}</span>
+        </header>
+        <IdeaLeadQueue ctx={ctx} queue={leadQueue} />
+      </section> : null}
+
+      {myLeadRequests.length ? <section className="dashboard-section dashboard-lead-requests" aria-labelledby="my-lead-requests-heading">
+        <header className="dashboard-section-header"><h2 id="my-lead-requests-heading"><UserPlus size={18} /> My requests to lead</h2></header>
+        <MyLeadRequests ctx={ctx} requests={myLeadRequests} />
+      </section> : null}
+
       {(
         <section className="dashboard-section dashboard-proposals" aria-labelledby="proposals-heading">
           <header className="dashboard-section-header">
             <h2 id="proposals-heading"><Sparkles size={18} /> My proposals</h2>
             <a className="btn sm" href="#/new-proposal"><Plus size={15} /> Propose a project</a>
           </header>
-          <p className="muted">Have an idea for a new initiative (a project)? Save a draft or send it to Research for approval.</p>
+          <p className="muted">Propose a project for others to lead or submit to lead it yourself. Save a draft or send it to Research for approval.</p>
           <MyProposals mine={myProposals} />
         </section>
       )}
@@ -3107,6 +3203,7 @@ function PageInitiative({ ctx }: { ctx: Ctx }) {
         <div className="row">
           <Pill>{ini.category}</Pill>
           <span className="muted">Lead: {leadDisplay(ctx, ini)}</span>
+          {ini.projectIdeaId ? <span className="muted">Idea proposed by {ini.proposerName || 'Member'} · <a href={`#/project-idea/${ini.projectIdeaId}`}>Original project idea</a></span> : null}
           <HpBar hp={ini.hp} />
         </div>
       </div>
@@ -3326,6 +3423,7 @@ function ProposalQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
                 <h3 style={{ marginBottom: 4 }}>{r.title}</h3>
                 <div className="row">
                   <Pill>{category}</Pill>
+                  <Pill tone="info">{proposalPurposeLabel(r.purpose)}</Pill>
                   <span className="muted">by {ctx.personName(r.userId)}</span>
                 </div>
               </div>
@@ -3339,9 +3437,9 @@ function ProposalQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
             ) : null}
             <DecisionForm
               ctx={ctx}
-              approveLabel="Approve & create initiative"
+              approveLabel={r.purpose === 'project_idea' ? 'Approve & publish idea' : 'Approve & create initiative'}
               onApprove={() => ctx.run('decideProposal',
-                { requestId: r.id, decision: 'approved' }, 'Initiative created.')}
+                { requestId: r.id, decision: 'approved' }, r.purpose === 'project_idea' ? 'Project idea published.' : 'Initiative created.')}
               onReject={(fb) => ctx.run('decideProposal',
                 { requestId: r.id, decision: 'rejected', feedback: fb }, 'Proposal declined.')}
               onChanges={(fb) => ctx.run('decideProposal',
@@ -3367,6 +3465,7 @@ function MyProposals({ mine }: { mine: Request[] }) {
               <div>
                 <strong>{r.title}</strong>{' '}
                 <Pill>{category}</Pill>
+                {r.status !== 'draft' ? <Pill tone="info">{proposalPurposeLabel(r.purpose)}</Pill> : null}
               </div>
               <Pill tone={statusTone(r.status)}>{({draft:'Draft',submitted:'Waiting for Research',changes_requested:'Changes requested',approved:'Approved',rejected:'Rejected'} as Record<string,string>)[r.status] ?? r.status}</Pill>
             </div>
@@ -3374,19 +3473,48 @@ function MyProposals({ mine }: { mine: Request[] }) {
             {plan ? <p className="muted"><strong>Execution plan:</strong> {plan}</p> : null}
             {motivation ? <p className="muted"><strong>Motivation:</strong> {motivation}</p> : null}
             {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
-            <p className="muted">{r.status === 'submitted' ? 'Next: Research will review this proposal. Your submitted content is shown above.' : editable ? 'Next: you can continue writing and submit to Research.' : r.status === 'approved' ? 'Next: open your project and begin work.' : 'You can use the decision feedback to propose another project.'}</p>
+            <p className="muted">{r.status === 'submitted' ? 'Next: Research will review this proposal. Your submitted content is shown above.' : editable ? 'Next: you can continue writing and submit to Research.' : r.status === 'approved' ? r.purpose === 'project_idea' ? r.initiativeId ? 'Your idea became an initiative. Your original proposal and credit remain available.' : 'Your approved idea is in the catalog. You have no team or reporting duties for it unless you request to lead and Research approves.' : 'Next: open your project and begin work.' : 'You can use the decision feedback to propose another project.'}</p>
             {editable ? (
               <a className="btn ghost sm" href={`#/new-proposal/${r.id}`}>
                 {r.status === 'draft' ? 'Continue draft' : 'Revise and resubmit'}
               </a>
             ) : null}
             {r.status === 'approved' && r.initiativeId ? <a className="btn sm" href={`#/initiative/${r.initiativeId}`}>Open project</a> : null}
+            {r.status === 'approved' && r.purpose === 'project_idea' ? <a className="btn ghost sm" href={`#/project-idea/${r.id}`}>View approved idea</a> : null}
             {r.status === 'rejected' ? <a className="btn ghost sm" href="#/new-proposal">Propose another project</a> : null}
           </div>
         )
       })}
     </div>
   ) : <Empty>You have not proposed anything yet.</Empty>
+}
+
+function IdeaLeadQueue({ ctx, queue }: { ctx: Ctx; queue: Request[] }) {
+  return <div className="dashboard-list">{queue.map(r => {
+    const idea = (ctx.data.projectIdeas ?? []).find(i => i.id === r.proposalId)
+    return <div className="card" key={r.id}>
+      <h3>{r.title}</h3>
+      <p><strong>Applicant:</strong> {ctx.personName(r.userId)}</p>
+      <p className="idea-lead-note"><strong>Interest and availability:</strong> {r.body}</p>
+      {idea ? <details><summary>Approved project idea</summary><ProjectIdeaContent idea={idea} /><a href={`#/project-idea/${idea.id}`}>Open project idea</a></details> : <p>Approved proposal unavailable.</p>}
+      {idea && !idea.initiativeId ? <DecisionForm ctx={ctx} approveLabel="Approve lead & start initiative"
+        onApprove={() => ctx.run('decideIdeaLead',{requestId:r.id,decision:'approved'},'Initiative started with the approved lead.')}
+        onReject={feedback => ctx.run('decideIdeaLead',{requestId:r.id,decision:'rejected',feedback},'Lead request declined.')} /> : null}
+    </div>
+  })}</div>
+}
+
+function MyLeadRequests({ ctx, requests }: { ctx: Ctx; requests: Request[] }) {
+  return <div className="dashboard-list">{requests.map(r => {
+    const initiativeId = r.initiativeId ?? (ctx.data.projectIdeas ?? []).find(i => i.id === r.proposalId)?.initiativeId
+    return <div className="card" key={r.id}>
+      <div className="between"><a href={`#/project-idea/${r.proposalId}`}><strong>{r.title}</strong></a><Pill tone={statusTone(r.status)}>{r.status === 'rejected' ? 'Declined' : statusLabel(r.status)}</Pill></div>
+      <p className="idea-lead-note"><strong>Your interest and availability:</strong> {r.body}</p>
+      {r.feedback ? <p><strong>Feedback:</strong> {r.feedback}</p> : null}
+      {r.status === 'pending' ? <p className="muted">Research will review your request to lead.</p> : null}
+      {initiativeId ? <a className="btn ghost sm" href={`#/initiative/${initiativeId}/overview`}>{r.status === 'approved' ? 'Open your initiative' : 'View resulting initiative'}</a> : null}
+    </div>
+  })}</div>
 }
 
 
@@ -3764,7 +3892,13 @@ function PageNotifications({ ctx }: { ctx: Ctx }) {
       body = p.approved ? 'Your request to join the initiative was approved.' : 'Your request to join the initiative was declined.'
     } else if (n.kind === 'proposal_decided') {
       title = 'Proposal decided'
-      body = `Your proposal is now ${statusLabel(p.status)}.`
+      body = <span>Your {p.purpose === 'project_idea' ? 'project idea' : 'proposal'} is now {statusLabel(p.status)}. {p.purpose === 'project_idea' && p.status === 'approved' ? <a href={`#/project-idea/${p.proposal_id}`}>View approved idea</a> : <a href="#/">View on Home</a>}</span>
+    } else if (n.kind === 'idea_lead_decided') {
+      title = 'Request to lead decided'
+      body = <span>{p.status === 'approved' ? 'Your request to lead was approved.' : p.status === 'taken' ? 'Taken up by another member.' : 'Your request to lead was declined.'} {p.initiative_id ? <a href={`#/initiative/${p.initiative_id}/overview`}>View initiative</a> : <a href="#/">View feedback on Home</a>}</span>
+    } else if (n.kind === 'project_idea_started') {
+      title = 'Your idea became an initiative'
+      body = <span>A member is now leading your project idea. <a href={`#/initiative/${p.initiative_id}/overview`}>View initiative</a></span>
     } else if (n.kind === 'review_assigned') {
       title = 'Review assigned'
       const obl = ctx.data.obligations.find(o => o.id === p.obligation_id)
@@ -3953,6 +4087,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     switch (route.name) {
       case '': return <PageHome ctx={ctx} />
       case 'catalog': return <PageCatalog ctx={ctx} />
+      case 'project-idea': return <PageProjectIdea ctx={ctx} />
       case 'signin': return <PageSignIn ctx={ctx} />
       case 'confirm-email': return <EmailLinkConfirm ctx={ctx} />
       case 'auth-error': return <AuthLinkError expired={route.parts[0] === 'otp_expired'} signedIn={!!me} />
@@ -3964,7 +4099,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
       />
       case 'initiative': return <PageInitiative ctx={ctx} />
       case 'document': return <PageDocument ctx={ctx} />
-      case 'new-proposal': return <NewProposalForm ctx={ctx} />
+      case 'new-proposal': return <NewProposalForm key={route.parts[1] ?? 'new'} ctx={ctx} />
       case 'accounts': return <PageAccounts ctx={ctx} />
       case 'assignments': return <PageAssignments ctx={ctx} />
       case 'health': return <PageHealth ctx={ctx} />

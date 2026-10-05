@@ -3,9 +3,11 @@ import { initiativeAbstract } from './initiative-details'
 import { supabase } from './client'
 import { cleanImportedText, importedDocumentTitle, presentDocumentTitle } from './imported-title'
 import { presentHistoricalBody } from './historical-body'
-import type { Data, DocumentRecord, Initiative, Person, ProfileDetails } from './model'
+import type { Data, DocumentRecord, Initiative, Person, ProfileDetails, ProjectIdea } from './model'
 import { imageExtension, imageFileError, normalizeProfileDetails, profileDetailsError } from './model'
-const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[],notifications:[]})
+const empty=():Data=>({people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],projectIdeas:[],audit:[],notifications:[]})
+const projectIdea=(p:any):ProjectIdea=>({id:p.id,title:p.title,abstract:p.summary??'',category:p.category||'Research',plan:p.execution_plan??'',motivation:p.motivation??'',proposerId:p.proposer_id,proposerName:p.proposer_name??'',initiativeId:p.initiative_id??undefined})
+const ideaCredit=(idea?:ProjectIdea)=>idea?{projectIdeaId:idea.id,proposerId:idea.proposerId,proposerName:idea.proposerName}:{}
 const SIGNUP_KEY='openlabs:signup:pending:v1'
 /**
  * Signup details normally travel in the magic-link metadata and are written by
@@ -108,21 +110,21 @@ export const stripSignedUrls = (htmlStr: string) => {
  * approved account sees of every initiative, without progress, tasks and
  * activity. Team members arrive as display names only.
  */
-async function loadCatalog():Promise<{initiatives:Initiative[];people:Person[]}>{
- const list=await rows('initiative_catalog')
+async function loadCatalog():Promise<{initiatives:Initiative[];people:Person[];projectIdeas:ProjectIdea[]}>{
+ const [list,ideas]=await Promise.all(['initiative_catalog','project_idea_catalog'].map(rows))
  const coverUrls=await signPaths(COVERS_BUCKET,list.map(i=>i.cover_object_path).filter(Boolean))
  const contentUrls=await signPaths('initiative-content-images',list.flatMap(i=>[...objectPathsIn(i.abstract_html??''),...objectPathsIn(i.motivation_html??'')]))
  const people=new Map<string,Person>()
  const initiatives=list.map(i=>{
   const members:{id:string;name:string}[]=Array.isArray(i.members)?i.members:[]
   for(const m of members)people.set(m.id,{id:m.id,name:m.name??'',email:'',status:'approved',roles:[]})
-  return {id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.overview_html),status:i.status,category:i.category||'Research',leadId:i.lead_id??'',leadName:i.lead_display_name??i.lead_name??'',members:members.map(m=>m.id),memberCount:Number(i.member_count??members.length),tasks:[],hp:typeof i.hp==='number'?i.hp:100,motivation:cleanImportedText(i.motivation??''),executionPlan:typeof i.execution_plan==='string'?i.execution_plan:undefined,overviewHtml:i.overview_html??'',abstractHtml:applyImageUrls(i.abstract_html??'',contentUrls),motivationHtml:applyImageUrls(i.motivation_html??'',contentUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined}
+  return {id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.overview_html),status:i.status,category:i.category||'Research',leadId:i.lead_id??'',leadName:i.lead_display_name??i.lead_name??'',members:members.map(m=>m.id),memberCount:Number(i.member_count??members.length),tasks:[],hp:typeof i.hp==='number'?i.hp:100,motivation:cleanImportedText(i.motivation??''),executionPlan:typeof i.execution_plan==='string'?i.execution_plan:undefined,overviewHtml:i.overview_html??'',abstractHtml:applyImageUrls(i.abstract_html??'',contentUrls),motivationHtml:applyImageUrls(i.motivation_html??'',contentUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined,projectIdeaId:i.project_idea_id??undefined,proposerId:i.proposer_id??undefined,proposerName:i.proposer_name??undefined}
  })
- return {initiatives,people:[...people.values()]}
+ return {initiatives,people:[...people.values()],projectIdeas:ideas.map(projectIdea)}
 }
 export async function loadLive(userId:string|null):Promise<Data>{
  const state=empty()
- if(!userId){const catalog=await loadCatalog();state.initiatives=catalog.initiatives;state.people=catalog.people;return state}
+ if(!userId){const catalog=await loadCatalog();state.initiatives=catalog.initiatives;state.people=catalog.people;state.projectIdeas=catalog.projectIdeas;return state}
  const profiles=await rows('profiles')
  const mine=profiles.find(p=>p.id===userId)
  // A profile with no name yet: finish the signup once, then read the row back.
@@ -131,10 +133,11 @@ export async function loadLive(userId:string|null):Promise<Data>{
  // placeholder for a profile that has not been filled in yet.
  state.people=profiles.map(p=>({id:p.id,name:p.display_name??'',email:'',status:p.account_status,roles:[],major:p.major??'',interests:p.interests??''}))
  if(state.people.find(p=>p.id===userId)?.status!=='approved'){
- const catalog=await loadCatalog();state.initiatives=catalog.initiatives
+ const catalog=await loadCatalog();state.initiatives=catalog.initiatives;state.projectIdeas=catalog.projectIdeas
  state.people.push(...catalog.people.filter(p=>!state.people.some(x=>x.id===p.id)));return state
  }
- const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles'].map(rows))
+ const [roles,initiatives,memberships,tasks,obligations,docs,versions,drafts,threads,comments,proposals,joins,audit,notifs,cycles,ideas,ideaLeads]=await Promise.all(['role_grants','initiatives','initiative_memberships','tasks','obligations','documents','document_versions','document_drafts','comment_threads','comments','proposals','join_requests','audit_events','notifications','cycles','project_idea_catalog','idea_lead_requests'].map(rows))
+ state.projectIdeas=ideas.map(projectIdea)
  // Which weeks Research has actually opened. A Roast Me draft can name a week
  // that is not in here yet; that is a pending week, not an error.
  state.cycles=cycles.map(c=>({startsOn:String(c.starts_on).slice(0,10),isBreak:!!c.is_break,rmDue:c.rm_due_at,reviewDue:c.review_due_at})).sort((a,b)=>a.startsOn.localeCompare(b.startsOn))
@@ -159,11 +162,11 @@ export async function loadLive(userId:string|null):Promise<Data>{
  ])
  const coverUrls=await signPaths(COVERS_BUCKET,initiatives.map(i=>i.cover_object_path).filter(Boolean))
  const initiativeUrls=await signPaths('initiative-content-images',initiatives.flatMap(i=>[...objectPathsIn(i.content?.abstract_html??''),...objectPathsIn(i.content?.motivation_html??'')]))
- state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.content?.html),status:i.status,category:i.content?.category||'Research',leadId:i.lead_id??'',leadName:i.lead_name??'',members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:cleanImportedText(i.content?.motivation??''),executionPlan:typeof i.content?.execution_plan==='string'?i.content.execution_plan:undefined,overviewHtml:i.content?.html??'',abstractHtml:applyImageUrls(i.content?.abstract_html??'',initiativeUrls),motivationHtml:applyImageUrls(i.content?.motivation_html??'',initiativeUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined})))
+ state.initiatives=await Promise.all(initiatives.map(async i=>({id:i.id,title:i.title,abstract:initiativeAbstract(i.summary,i.content?.html),status:i.status,category:i.content?.category||'Research',leadId:i.lead_id??'',leadName:i.lead_name??'',members:memberships.filter(m=>m.initiative_id===i.id&&!m.left_at).map(m=>m.user_id),tasks:tasks.filter(t=>t.initiative_id===i.id).map(t=>({id:t.id,title:t.title,description:applyImageUrls(String(t.details??''),imageUrls),status:t.status,assigneeId:t.assignee_id??undefined,dueAt:t.due_at??undefined})),hp:await rpc('hp_balance',{i:i.id}),motivation:cleanImportedText(i.content?.motivation??''),executionPlan:typeof i.content?.execution_plan==='string'?i.content.execution_plan:undefined,overviewHtml:i.content?.html??'',abstractHtml:applyImageUrls(i.content?.abstract_html??'',initiativeUrls),motivationHtml:applyImageUrls(i.content?.motivation_html??'',initiativeUrls),coverObjectPath:i.cover_object_path??undefined,coverFallbackColor:i.cover_fallback_color??undefined,coverPositionX:i.cover_position_x??50,coverPositionY:i.cover_position_y??50,coverUrl:i.cover_object_path?coverUrls.get(i.cover_object_path):undefined,activatedAt:i.activated_at,...ideaCredit(state.projectIdeas?.find(idea=>idea.initiativeId===i.id))})))
  state.obligations=obligations.map(o=>({id:o.id,initiativeId:o.initiative_id,assigneeId:o.responsible_user_id,kind:o.kind,cycleMonday:cycles.find(c=>c.id===o.cycle_id)?.starts_on?.slice(0,10),due:o.due_at,status:o.status==='open'?'pending':o.status==='submitted'?'complete':o.status,targetId:o.target_document_id,targetVersion:o.target_version}))
  state.documents=shaped.map(({d,vs,draft,content,bodyHtml,versionHtml})=>{const latest=vs.at(-1);const historical=d.is_historical_import===true||content?.historical===true;const sourceOrder=Number(content?.source_order);return {id:d.id,initiativeId:d.initiative_id,kind:d.kind,title:historical?importedDocumentTitle(title(content,d.kind==='rm'?'Roast Me':'Peer review'),d.kind,d.kind==='review'?shaped.filter(x=>x.d.id===d.reviewed_document_id).map(x=>importedDocumentTitle(title(x.content,'Roast Me'),'rm'))[0]:undefined):presentDocumentTitle(title(content,d.kind==='rm'?'Roast Me':'Peer review')),authorId:d.author_id??'',authorName:typeof content?.source_author==='string'?content.source_author:undefined,status:draft?'draft':d.submitted_version_number?'submitted':'draft',body:applyImageUrls(bodyHtml,imageUrls),version:d.submitted_version_number??0,submittedAt:historical?undefined:obligations.find(o=>o.id===d.obligation_id)?.submitted_at??latest?.submitted_at,targetId:d.reviewed_document_id??obligations.find(o=>o.id===d.obligation_id)?.target_document_id,targetVersion:d.reviewed_version_number??obligations.find(o=>o.id===d.obligation_id)?.target_version,voluntaryReview:!!d.is_voluntary_review,historical,sourceKey:typeof content?.source_key==='string'?content.source_key:typeof d.historical_source_key==='string'?d.historical_source_key:undefined,sourceDate:typeof content?.source_date==='string'?content.source_date:typeof content?.source_date_text==='string'?content.source_date_text:undefined,sourcePeriod:typeof content?.source_period==='string'?(historical?cleanImportedText(content.source_period):content.source_period):undefined,sourcePeriodKey:typeof content?.source_period_key==='string'?content.source_period_key:undefined,sourceWeek:typeof content?.source_week==='string'?(historical?cleanImportedText(content.source_week):content.source_week):undefined,sourceOrder:Number.isInteger(sourceOrder)&&sourceOrder>0?sourceOrder:undefined,targetMonday:d.target_monday?String(d.target_monday).slice(0,10):undefined,obligationId:d.obligation_id??undefined,draftRevision:draft?.revision,versions:vs.map((v,idx)=>({version:v.version_number,body:applyImageUrls(versionHtml[idx],imageUrls),at:v.submitted_at}))} as DocumentRecord})
  state.threads=threads.map(t=>({id:t.id,documentId:t.document_id,version:t.version_number,quote:t.quote||'',resolved:!!t.resolved_at,anchorStart:t.anchor_start??undefined,anchorEnd:t.anchor_end??undefined,messages:comments.filter(c=>c.thread_id===t.id).sort((a,b)=>a.created_at.localeCompare(b.created_at)).map(c=>({authorId:c.author_id,body:c.body,at:c.created_at}))}))
- state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,userId:p.author_id,initiativeId:initiatives.find(i=>i.proposal_id===p.id)?.id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason}))]
+ state.requests=[...proposals.map(p=>({id:p.id,kind:'proposal' as const,purpose:p.purpose??'own_initiative',userId:p.author_id,initiativeId:initiatives.find(i=>i.proposal_id===p.id)?.id,title:p.title,body:JSON.stringify({abstract:p.summary,category:p.content?.category,plan:p.content?.html,motivation:p.content?.motivation}),status:p.status,feedback:p.decision_reason})),...joins.map(j=>({id:j.id,kind:'join' as const,userId:j.applicant_id,initiativeId:j.initiative_id,title:'Join request',body:j.message,status:j.status,feedback:j.decision_reason})),...ideaLeads.map(r=>({id:r.id,kind:'idea_lead' as const,proposalId:r.proposal_id,userId:r.applicant_id,initiativeId:state.projectIdeas?.find(i=>i.id===r.proposal_id)?.initiativeId,title:state.projectIdeas?.find(i=>i.id===r.proposal_id)?.title??'Project idea',body:r.message,status:r.status,feedback:r.decision_reason}))]
  state.audit=audit.map(a=>({id:a.id,at:a.created_at,actor:a.actor_id,action:a.action,detail:JSON.stringify(a.detail)}));
  state.notifications=notifs.map(n=>({id:n.id,userId:n.user_id,kind:n.kind,payload:n.payload||{},createdAt:n.created_at,readAt:n.read_at}));
  return state
@@ -213,8 +216,10 @@ export async function liveAction(data:Data,_userId:string|null,action:string,p:a
  // Self-only by construction: update_my_profile takes no target user and writes
  // the auth.uid() row; account status, roles and the sign-in email are untouched.
  case 'updateProfile':{const d=normalizeProfileDetails(p);const problem=profileDetailsError(d);if(problem)throw new Error(problem);return rpc('update_my_profile',{p_display_name:d.name,p_major:d.major,p_interests:d.interests})}
- case 'createProposal':return rpc('save_proposal',{p_title:p.title,p_summary:p.body??p.abstract??'',p_content:{html:p.plan??'',category:p.category,motivation:p.motivation??''},p_submit:p.status!=='draft',p_id:p.id??null})
+ case 'createProposal':return rpc('save_proposal',{p_title:p.title,p_summary:p.body??p.abstract??'',p_content:{html:p.plan??'',category:p.category,motivation:p.motivation??'',...(p.purpose!==undefined?{purpose:p.purpose}:{})},p_submit:p.status!=='draft',p_id:p.id??null})
  case 'decideProposal':return rpc('decide_proposal',{p_proposal:p.requestId??id,p_status:p.status??p.decision,p_reason:p.feedback??p.reason??''})
+ case 'requestIdeaLead':return rpc('request_idea_lead',{p_proposal:p.proposalId,p_message:p.body??''})
+ case 'decideIdeaLead':return rpc('decide_idea_lead',{p_request:p.requestId??id,p_approve:(p.status??p.decision)==='approved',p_reason:p.feedback??p.reason??''})
  case 'requestJoin':return rpc('request_join',{p_initiative:p.initiativeId??id,p_message:p.body??p.message??''})
  case 'decideJoin':return rpc('decide_join_request',{p_request:p.requestId??id,p_approve:p.approve??(p.status??p.decision)==='approved',p_reason:p.feedback??p.reason??''})
  // A Roast Me draft belongs to the team, not to a cycle: save_rm_draft creates

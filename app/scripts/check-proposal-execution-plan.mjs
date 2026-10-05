@@ -12,7 +12,7 @@ await db.exec(`create role anon; create role authenticated; create role service_
  create schema storage; create table storage.buckets(id text primary key,name text,public boolean); create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text); alter table storage.objects enable row level security;
  create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;
  grant usage on schema storage to anon,authenticated; grant select on storage.objects to anon,authenticated;`)
-for (const file of readdirSync('../supabase/migrations').filter(x => x.endsWith('.sql') && !x.includes('025_')).sort()) {
+for (const file of readdirSync('../supabase/migrations').filter(x => x.endsWith('.sql') && x < '202610030025_proposal_execution_plan.sql').sort()) {
   await db.exec(readFileSync('../supabase/migrations/' + file, 'utf8').replace('create extension if not exists pgcrypto;', ''))
 }
 

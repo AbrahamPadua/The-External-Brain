@@ -1,5 +1,6 @@
 import { obligationDocument, obligationWeek, isPublishedDocument } from './obligationPresentation'
 import { useDraftPersistence } from './useDraftPersistence'
+import './home.css'
 /**
  * The External Brain - front-end dashboard for Neuro Network at UC San Diego.
  *
@@ -145,7 +146,7 @@ import {
 } from './highlight'
 import type { Anchor, TextMap } from './highlight'
 import {
-  ArrowLeft, Bell, Check, CheckCheck, CircleAlert, ClipboardList, Clock,
+  ArrowLeft, Bell, Check, CheckCheck, ChevronDown, CircleAlert, ClipboardList, Clock,
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
   Maximize2, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Save, Send, Settings, ShieldCheck, Sparkles, SquareArrowOutUpRight, Sun, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
@@ -2831,29 +2832,31 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
   const draft = matched?.status === 'draft' ? matched : undefined
   const overdue = relDue(ob.due).includes('overdue')
   const waitingReview = ob.kind === 'review' && (!ob.targetId || !targetDoc || !reviewedIni)
-  const assignmentMessage = !ob.targetId ? 'Waiting for Research to assign a report' : 'Assigned report unavailable. Ask Research to check this assignment.'
+  const assignmentMessage = !ob.targetId ? 'Waiting for Research' : 'Report unavailable'
+  const state = waitingReview ? assignmentMessage : submitted ? ob.status === 'complete' ? 'Submitted' : 'Status mismatch' : draft ? 'Draft' : ob.status === 'complete' ? 'Report unavailable' : statusLabel(ob.status)
+  const weekDate = week ? `${week}T12:00:00Z` : undefined
   return (
-    <div className="thread">
-      <div className="between">
-        <div>
-          <strong>
+    <div className={`thread home-obligation${submitted ? ' is-submitted' : ''}${waitingReview ? ' is-waiting' : ''}`}>
+      <div className="home-obligation-layout">
+        <div className="home-obligation-content">
+          <strong className="home-obligation-title">
             {ob.kind === 'rm'
-              ? `Weekly update (Roast Me) - ${ini?.title ?? 'initiative'}`
-              : `Peer review${targetDoc ? ` of ${targetDoc.title}` : ''}${reviewedIni ? ` (${reviewedIni.title})` : ''}`}
+              ? ini?.title ?? 'Weekly update'
+              : targetDoc?.title ?? ini?.title ?? 'Peer review'}
           </strong>
           <div className="msg-meta">
-            {waitingReview ? <span>{assignmentMessage}. Next: Research.</span> : <Pill tone={submitted ? 'good' : statusTone(ob.status)}>{submitted ? ob.status === 'complete' ? 'Submitted' : `Report submitted; obligation status ${ob.status}` : draft ? 'Draft in progress' : ob.status === 'complete' ? 'Obligation complete; report unavailable' : 'Not submitted'}</Pill>}
-            {ob.kind === 'rm' ? <span>{week ? `Reporting week of ${fmtDate(`${week}T12:00:00Z`)}` : 'Reporting week unavailable'}</span> : null}
-            {submitted && draft ? <span>Revision draft in progress</span> : null}
-            <span className={!waitingReview && overdue ? 'pill bad' : ''}>{waitingReview ? `Scheduled deadline: ${fmtDateTime(ob.due)}; writing starts after assignment.` : relDue(ob.due)}</span>
-            {!waitingReview && ob.kind === 'review' && targetDoc ? <a href={`#/document/${targetDoc.id}`}>Read assigned report (version {ob.targetVersion ?? targetDoc.version})</a> : null}
+            <Pill tone={waitingReview ? 'muted' : submitted && ob.status === 'complete' ? 'good' : statusTone(ob.status)}>{state}</Pill>
+            {weekDate ? <time dateTime={week} title={fmtDate(weekDate)}>Week of {new Date(weekDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</time> : ob.kind === 'rm' ? <span>Week unavailable</span> : null}
+            {submitted && draft ? <span>Revision draft</span> : null}
+            {!waitingReview && !submitted && ob.status !== 'complete' ? <span className={overdue ? 'home-overdue' : ''} title={fmtDateTime(ob.due)}>{relDue(ob.due)}</span> : null}
+            {!waitingReview && ob.kind === 'review' && targetDoc ? <><span>{reviewedIni?.title}</span><a href={`#/document/${targetDoc.id}`} aria-label={`Read assigned report, version ${ob.targetVersion ?? targetDoc.version}`}>Read v{ob.targetVersion ?? targetDoc.version}</a></> : null}
           </div>
         </div>
         <div className="btn-row">
           {waitingReview ? null : submitted ? (
-            <a className="btn ghost sm" href={`#/document/${submitted.id}`}><CheckCheck size={15} /> {ob.kind === 'rm' ? 'View this week’s submitted report' : 'View submitted review'}</a>
+            <a className="btn ghost sm" href={`#/document/${submitted.id}`}><CheckCheck size={15} /> {ob.kind === 'rm' ? 'View report' : 'View review'}</a>
           ) : draft ? (
-            <a className="btn sm" href={`#/document/${draft.id}`}>{ob.kind === 'rm' ? 'Open this week’s draft' : 'Open draft'}</a>
+            <a className="btn sm" href={`#/document/${draft.id}`}>Continue draft</a>
           ) : (
             <button
               className="btn sm"
@@ -2871,13 +2874,20 @@ function ObligationRow({ ctx, ob }: { ctx: Ctx; ob: Obligation }) {
                 }
               }}
             >
-              {ob.kind === 'rm' ? 'Start this week’s draft' : 'Start draft'}
+              Start draft
             </button>
           )}
         </div>
       </div>
     </div>
   )
+}
+
+function HomeRequests({ requests, children }: { requests: Request[]; children: (request: Request) => ReactNode }) {
+  return <div className="dashboard-list">{requests.map(request => <details className="home-request" key={request.id}>
+    <summary><strong>{request.title}</strong><span className="home-request-state"><Pill tone={statusTone(request.status)}>{request.status === 'submitted' ? 'Under review' : statusLabel(request.status)}</Pill><ChevronDown size={16} /></span></summary>
+    <div className="home-request-body">{children(request)}</div>
+  </details>)}</div>
 }
 
 function PageHome({ ctx }: { ctx: Ctx }) {
@@ -2977,28 +2987,24 @@ function PageHome({ ctx }: { ctx: Ctx }) {
 
   const decisions: ReactNode[] = []
   for (const r of proposalsToRevise) {
-    decisions.push(<li key={`rev-${r.id}`}><a href={`#/new-proposal/${r.id}`}>Research asked for changes to &ldquo;{r.title}&rdquo;</a></li>)
+    decisions.push(<li key={`rev-${r.id}`}><span>Changes requested: {r.title}</span><a href={`#/new-proposal/${r.id}`}>Revise</a></li>)
   }
   if (pendingJoins.length) {
-    decisions.push(<li key="j">{pendingJoins.length} join request(s) to decide on the initiative cards below</li>)
+    decisions.push(<li key="j"><span>{pendingJoins.length} join request{pendingJoins.length === 1 ? '' : 's'}</span><button className="btn ghost sm" onClick={() => document.getElementById('initiatives-heading')?.scrollIntoView({behavior:'smooth'})}>Review requests</button></li>)
   }
   if (ctx.isAdmin && pendingAccounts.length) {
-    decisions.push(<li key="a"><a href="#/accounts">{pendingAccounts.length} account(s) to review</a></li>)
+    decisions.push(<li key="a"><span>{pendingAccounts.length} account{pendingAccounts.length === 1 ? '' : 's'} waiting</span><a href="#/accounts">Review accounts</a></li>)
   }
   if (ctx.isResearch && unreviewedRm.length) {
-    decisions.push(<li key="r"><a href="#/assignments">{unreviewedRm.length} memo(s) need a reviewer</a></li>)
+    decisions.push(<li key="r"><span>{unreviewedRm.length} report{unreviewedRm.length === 1 ? ' needs' : 's need'} a reviewer</span><a href="#/assignments">Assign reviewer</a></li>)
   }
   const proposalQueue = ctx.isResearch ? pendingProposals : []
   const leadQueue = ctx.isResearch ? data.requests.filter(r => r.kind === 'idea_lead' && r.status === 'pending') : []
   const myLeadRequests = data.requests.filter(r => r.kind === 'idea_lead' && r.userId === userId)
 
   return (
-    <div className="dashboard">
-      <section className="dashboard-section dashboard-welcome">
-        <span className="dashboard-eyebrow">MEMBER WORKSPACE</span>
-        <h1>Welcome, {nameOf(me).split(' ')[0]}</h1>
-        <p className="muted">Here is what is waiting on you this week. An initiative is a project your team works on together.</p>
-      </section>
+    <div className="dashboard dashboard-compact">
+      <h1 className="home-page-title">Home</h1>
 
       <section className="dashboard-section dashboard-nudge">
         <ProfileNudge ctx={ctx} />
@@ -3006,7 +3012,7 @@ function PageHome({ ctx }: { ctx: Ctx }) {
 
       <section className="dashboard-section dashboard-rm" aria-labelledby="rm-heading">
         <header className="dashboard-section-header">
-          <h2 id="rm-heading"><Inbox size={18} /> Your weekly updates (Roast Me)</h2>
+          <h2 id="rm-heading"><Inbox size={18} /> Weekly updates</h2>
           <span className="dashboard-badge">{myRm.length}</span>
         </header>
         {myRm.length ? (
@@ -3018,13 +3024,13 @@ function PageHome({ ctx }: { ctx: Ctx }) {
             ))}
           </div>
         ) : (
-          <Empty>No weekly update due right now. You can still draft from your initiative’s Progress tab.</Empty>
+          <Empty>No updates due.</Empty>
         )}
       </section>
 
       <section className="dashboard-section dashboard-reviews" aria-labelledby="reviews-heading">
         <header className="dashboard-section-header">
-          <h2 id="reviews-heading"><ClipboardList size={18} /> Your reviews</h2>
+          <h2 id="reviews-heading"><ClipboardList size={18} /> Reviews</h2>
           <span className="dashboard-badge">{myReviews.length}</span>
         </header>
         {myReviews.length ? (
@@ -3036,73 +3042,17 @@ function PageHome({ ctx }: { ctx: Ctx }) {
             ))}
           </div>
         ) : (
-          <Empty>No manual reviews assigned to you.</Empty>
+          <Empty>No reviews assigned.</Empty>
         )}
       </section>
 
       {decisions.length ? (
         <section className="dashboard-section dashboard-decisions" aria-labelledby="decisions-heading">
           <header className="dashboard-section-header">
-            <h2 id="decisions-heading"><ShieldCheck size={18} /> Decisions waiting on you</h2>
+            <h2 id="decisions-heading"><ShieldCheck size={18} /> Needs your attention</h2>
             <span className="dashboard-badge dashboard-badge-coral">{decisions.length}</span>
           </header>
           <ul className="dashboard-decision-list">{decisions}</ul>
-        </section>
-      ) : null}
-
-      {proposalQueue.length ? (
-        <section className="dashboard-section dashboard-proposal-queue" aria-labelledby="proposal-queue-heading">
-          <header className="dashboard-section-header">
-            <h2 id="proposal-queue-heading"><Sparkles size={18} /> Proposals awaiting review</h2>
-            <span className="dashboard-badge dashboard-badge-coral">{proposalQueue.length}</span>
-          </header>
-          <ProposalQueue ctx={ctx} queue={proposalQueue} />
-        </section>
-      ) : null}
-
-      {leadQueue.length ? <section className="dashboard-section dashboard-lead-queue" aria-labelledby="lead-queue-heading">
-        <header className="dashboard-section-header">
-          <h2 id="lead-queue-heading"><UserPlus size={18} /> Requests to lead</h2>
-          <span className="dashboard-badge dashboard-badge-coral">{leadQueue.length}</span>
-        </header>
-        <IdeaLeadQueue ctx={ctx} queue={leadQueue} />
-      </section> : null}
-
-      {myLeadRequests.length ? <section className="dashboard-section dashboard-lead-requests" aria-labelledby="my-lead-requests-heading">
-        <header className="dashboard-section-header"><h2 id="my-lead-requests-heading"><UserPlus size={18} /> My requests to lead</h2></header>
-        <MyLeadRequests ctx={ctx} requests={myLeadRequests} />
-      </section> : null}
-
-      {(
-        <section className="dashboard-section dashboard-proposals" aria-labelledby="proposals-heading">
-          <header className="dashboard-section-header">
-            <h2 id="proposals-heading"><Sparkles size={18} /> My proposals</h2>
-            <a className="btn sm" href="#/new-proposal"><Plus size={15} /> Propose a project</a>
-          </header>
-          <p className="muted">Propose a project for others to lead or submit to lead it yourself. Save a draft or send it to Research for approval.</p>
-          <MyProposals mine={myProposals} />
-        </section>
-      )}
-
-      {openThreads.length ? (
-        <section className="dashboard-section dashboard-threads" aria-labelledby="threads-heading">
-          <header className="dashboard-section-header">
-            <h2 id="threads-heading"><MessageSquare size={18} /> Open comment threads</h2>
-            <span className="dashboard-badge">{openThreads.length}</span>
-          </header>
-          <div className="dashboard-threads-list">
-            {openThreads.map((t) => {
-              const doc = data.documents.find((x) => x.id === t.documentId)
-              return (
-                <div className="card dashboard-thread-card" key={t.id}>
-                  <div className="between">
-                    <span className="dashboard-thread-quote">&ldquo;{t.quote}&rdquo;</span>
-                    <a className="btn ghost sm" href={`#/document/${t.documentId}`}>Open {doc?.title}</a>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
         </section>
       ) : null}
 
@@ -3111,7 +3061,6 @@ function PageHome({ ctx }: { ctx: Ctx }) {
           <h2 id="initiatives-heading"><FlaskConical size={18} /> Your initiatives</h2>
           <span className="dashboard-badge">{homeInitiatives.length}</span>
         </header>
-        <p className="field-hint">HP means health points associated with reporting obligations. Missed deadlines deduct points; first assigned submissions earn the configured reward and reverse any recorded missed penalty. Research can adjust HP with a reason. HP tracks reporting, not scientific quality.</p>
         {homeInitiatives.length ? (
           <div className="catalog-grid dashboard-initiatives-grid">
             {homeInitiatives.map((i) => (
@@ -3121,8 +3070,64 @@ function PageHome({ ctx }: { ctx: Ctx }) {
               </div>
             ))}
           </div>
-        ) : <Empty>You are not on a team yet. Browse the <a href="#/catalog">catalog</a>.</Empty>}
+        ) : <Empty>No team yet. Browse the <a href="#/catalog">catalog</a>.</Empty>}
       </section>
+
+      {proposalQueue.length ? (
+        <section className="dashboard-section dashboard-proposal-queue" aria-labelledby="proposal-queue-heading">
+          <header className="dashboard-section-header">
+            <h2 id="proposal-queue-heading"><Sparkles size={18} /> Proposals awaiting review</h2>
+            <span className="dashboard-badge dashboard-badge-coral">{proposalQueue.length}</span>
+          </header>
+          <HomeRequests requests={proposalQueue}>{request => <ProposalQueue ctx={ctx} queue={[request]} />}</HomeRequests>
+        </section>
+      ) : null}
+
+      {leadQueue.length ? <section className="dashboard-section dashboard-lead-queue" aria-labelledby="lead-queue-heading">
+        <header className="dashboard-section-header">
+          <h2 id="lead-queue-heading"><UserPlus size={18} /> Requests to lead</h2>
+          <span className="dashboard-badge dashboard-badge-coral">{leadQueue.length}</span>
+        </header>
+        <HomeRequests requests={leadQueue}>{request => <IdeaLeadQueue ctx={ctx} queue={[request]} />}</HomeRequests>
+      </section> : null}
+
+      {myLeadRequests.length ? <section className="dashboard-section dashboard-lead-requests" aria-labelledby="my-lead-requests-heading">
+        <header className="dashboard-section-header"><h2 id="my-lead-requests-heading"><UserPlus size={18} /> My requests to lead</h2></header>
+        <HomeRequests requests={myLeadRequests}>{request => <MyLeadRequests ctx={ctx} requests={[request]} />}</HomeRequests>
+      </section> : null}
+
+      {(
+        <section className="dashboard-section dashboard-proposals" aria-labelledby="proposals-heading">
+          <header className="dashboard-section-header">
+            <h2 id="proposals-heading"><Sparkles size={18} /> My proposals</h2>
+            <a className="btn sm" href="#/new-proposal"><Plus size={15} /> Propose a project</a>
+          </header>
+          {myProposals.length ? <HomeRequests requests={myProposals}>{request => <MyProposals mine={[request]} />}</HomeRequests> : null}
+        </section>
+      )}
+
+      {openThreads.length ? (
+        <section className="dashboard-section dashboard-threads" aria-labelledby="threads-heading">
+          <header className="dashboard-section-header">
+            <h2 id="threads-heading"><MessageSquare size={18} /> Comments</h2>
+            <span className="dashboard-badge">{openThreads.length}</span>
+          </header>
+          <div className="dashboard-threads-list">
+            {openThreads.map((t) => {
+              const doc = data.documents.find((x) => x.id === t.documentId)
+              return (
+                <div className="card dashboard-thread-card" key={t.id}>
+                  <div className="between">
+                    <span className="dashboard-thread-quote">&ldquo;{t.quote}&rdquo;</span>
+                    <a className="btn ghost sm" href={`#/document/${t.documentId}`} aria-label={`Open comments on ${doc?.title ?? 'report'}`}>Open</a>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      ) : null}
+
     </div>
   )
 }

@@ -70,8 +70,8 @@ it('keeps proposals reachable while work is pending for Member and Research', as
 it('does not let a historical week satisfy a current weekly obligation', async () => {
   await show(structuredClone(seed), 'alex')
   const weekly = host.querySelector('.dashboard-rm') ?? [...host.querySelectorAll('.dashboard-section')].find(s=>s.textContent?.includes('Your Roast Mes'))
-  expect(weekly?.textContent).toContain('Start this week’s draft')
-  expect(weekly?.textContent).not.toContain('View this week’s submitted report')
+  expect(weekly?.textContent).toContain('Start draft')
+  expect(weekly?.textContent).not.toContain('View report')
 })
 
 it('shows waiting and unavailable review assignments without a start action', async () => {
@@ -80,8 +80,8 @@ it('shows waiting and unavailable review assignments without a start action', as
   data.obligations.push({id:'missing',initiativeId:'memory',assigneeId:'alex',kind:'review',due:'2026-09-14T06:59:00Z',status:'pending',targetId:'gone'})
   await show(data, 'alex')
   const reviews = host.querySelector('.dashboard-reviews')!
-  expect(reviews.textContent).toContain('Waiting for Research to assign a report')
-  expect(reviews.textContent).toContain('Assigned report unavailable')
+  expect(reviews.textContent).toContain('Waiting for Research')
+  expect(reviews.textContent).toContain('Report unavailable')
   expect(reviews.querySelector('button')).toBeNull()
 })
 
@@ -96,6 +96,6 @@ it('retains this week’s completed update with a submitted action and separate 
   await show(data,'alex')
   const row=host.querySelector('.dashboard-rm')!
   expect(row.textContent).toContain('Submitted')
-  expect(row.textContent).toContain('Revision draft in progress')
-  expect(row.querySelector('a[href="#/document/rm-memory"]')?.textContent).toContain('View this week’s submitted report')
+  expect(row.textContent).toContain('Revision draft')
+  expect(row.querySelector('a[href="#/document/rm-memory"]')?.textContent).toContain('View report')
 })

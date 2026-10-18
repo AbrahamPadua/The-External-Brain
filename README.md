@@ -2,6 +2,8 @@
 
 React/TypeScript client for GitHub Pages and a Supabase PostgreSQL backend. Account approval is separate from email verification and initiative participation. New sign-ups remain pending until Operations or Research approves them.
 
+New members sign up through an email link, then set a password after verification. Returning members sign in with their email and password. Settings includes a password form, available even while approval is pending. Members who have not set a password or have forgotten it can use the email-link option on the sign-in form to set a new one.
+
 ## Run locally
 
 From `app/`: `npm ci`, then `npm run dev`. Without Supabase environment settings the app uses a visibly labeled, fictional local demo. Demo data is stored only in your browser and is never a production identity or permission system.

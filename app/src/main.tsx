@@ -7,10 +7,12 @@ import {loadLive,liveAction,rememberSignup} from './live'
 import {demoAction,normalizeDemo} from './demo'
 import {seed,normalizeProfileDetails,profileDetailsError} from './model'
 import type {Data,ProfileDetails} from './model'
+import {isEmailLinkCallback,openPasswordSetup,passwordError} from './auth'
 import './style.css'
 import './studio.css'
 import './visual-update.css'
 const DEMO_KEY='open-labs-demo-v1'
+const emailLinkReturn=isEmailLinkCallback(window.location.hash)
 const blank:Data={people:[],initiatives:[],documents:[],obligations:[],threads:[],requests:[],audit:[]}
 function readDemo():Data{try{const saved=JSON.parse(localStorage.getItem(DEMO_KEY)||'null');if(saved?.people&&saved?.initiatives&&saved?.audit)return normalizeDemo(saved)}catch{/* recover corrupted local demo */}return normalizeDemo(structuredClone(seed))}
 /**
@@ -34,6 +36,7 @@ function Root(){
  const [minimumLoaderUntil,setMinimumLoaderUntil]=useState(configured?Date.now()+3000:0)
  const [error,setError]=useState('')
  const currentUser=useRef<string|null>(null)
+ const passwordFromEmail=useRef(emailLinkReturn)
  useEffect(()=>{
   if(!minimumLoaderUntil)return
   const timer=setTimeout(()=>setMinimumLoaderUntil(0),Math.max(0,minimumLoaderUntil-Date.now()))
@@ -47,8 +50,8 @@ function Root(){
  // Supabase auth callbacks must finish before a database request starts.
  if(fromAuthEvent)setTimeout(()=>{if(alive)void refresh(uid)},0);else void refresh(uid)
  }
- const {data:subscription}=supabase.auth.onAuthStateChange((_event,session)=>{if(!alive)return;applySession(session?.user.id??null,session?.user.email??null,true)})
- void supabase.auth.getSession().then(({data,error})=>{if(!alive||sessionInitialized)return;if(error){setError(error.message);setLoading(false);return}applySession(data.session?.user.id??null,data.session?.user.email??null,false)})
+ const {data:subscription}=supabase.auth.onAuthStateChange((event,session)=>{if(!alive)return;if(session&&(passwordFromEmail.current||event==='PASSWORD_RECOVERY')){passwordFromEmail.current=false;openPasswordSetup()}applySession(session?.user.id??null,session?.user.email??null,true)})
+ void supabase.auth.getSession().then(({data,error})=>{if(!alive||sessionInitialized)return;if(error){setError(error.message);setLoading(false);return}if(data.session&&passwordFromEmail.current){passwordFromEmail.current=false;openPasswordSetup()}applySession(data.session?.user.id??null,data.session?.user.email??null,false)})
  const timer=setInterval(()=>void refresh(currentUser.current),30000)
  return()=>{alive=false;subscription.subscription.unsubscribe();clearInterval(timer)}
  },[refresh])
@@ -74,6 +77,18 @@ function Root(){
  if(error)throw new Error(signInMessage(error,!!signup))
  if(signup)rememberSignup(email,signup)
  }
+ async function signInWithPassword(email:string,password:string){
+ if(!supabase)throw new Error('Password sign-in is available only on the live site')
+ if(!password)throw new Error('Enter your password.')
+ const {error}=await supabase.auth.signInWithPassword({email:email.trim(),password})
+ if(error){if(error.code==='invalid_credentials')throw new Error('The email or password is incorrect. If you have not set a password or forgot it, use an email sign-in link to set a new one.');throw new Error(error.message)}
+ }
+ async function updatePassword(password:string){
+ if(!supabase||!currentUser.current)throw new Error('Sign in before setting your password.')
+ const problem=passwordError(password);if(problem)throw new Error(problem)
+ const {error}=await supabase.auth.updateUser({password})
+ if(error)throw new Error(error.message)
+ }
  async function verifyEmailCode(email:string,code:string){
  if(!supabase)throw new Error('Email codes are available only on the live site')
  if(!/^\d{6}$/.test(code))throw new Error('Enter the six-digit code from your email')
@@ -89,6 +104,6 @@ function Root(){
  async function signOut(){if(supabase){const {error}=await supabase.auth.signOut();if(error)throw error}setUserId(null);setAuthEmail(null)}
  if(loading||minimumLoaderUntil)return <WorkspaceLoader />
  if(error)return <div className="connection-state"><h1>Unable to open the workspace</h1><p role="alert">{error}</p><button onClick={()=>{setMinimumLoaderUntil(Date.now()+3000);setLoading(true);void refresh(userId)}}>Try again</button></div>
- return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onVerifyCode={verifyEmailCode} onVerifyLink={verifyEmailLink} onSignOut={signOut} authEmail={authEmail}/>
+ return <App data={data} userId={userId} onAction={action} mode={configured?'live':'demo'} onSignIn={signIn} onSignInWithPassword={signInWithPassword} onUpdatePassword={updatePassword} onVerifyCode={verifyEmailCode} onVerifyLink={verifyEmailLink} onSignOut={signOut} authEmail={authEmail}/>
 }
 createRoot(document.getElementById('app')!).render(<React.StrictMode><Root/></React.StrictMode>)

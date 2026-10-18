@@ -41,13 +41,16 @@ try {
     ['catalog-desktop',1440,'dark','maya','catalog'], ['catalog-light',1440,'light','maya','catalog'], ['catalog-visitor',1440,'light','','catalog'], ['catalog-mobile',390,'dark','alex','catalog'], ['settings-mobile',390,'dark','maya','settings'],
     ['expired-link',390,'dark','','error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired'],
     ['signin-code',390,'dark','','signin'],
+    ['signin-password',390,'dark','','signin'],
     ['signin-confirm',390,'dark','','confirm-email/' + 'a'.repeat(56)],
+    ['password-setup',390,'dark','jordan','password'],
+    ['settings-password',390,'dark','jordan','settings'],
     ['initiative-dark',1440,'dark','maya','initiative/sound/overview'],
     ['visitor-mobile',390,'dark','',''], ['accounts-dark',1440,'dark','sam','accounts'],
     ['document-mobile',390,'dark','maya','document/rm-sound'],
     ['accounts-mobile',390,'dark','sam','accounts'],
     ['loader-light',1440,'light','',''], ['loader-mobile',390,'dark','',''], ['loader-reduced',1440,'dark','',''],
-  ]) {
+  ].filter(([name]) => !process.argv.includes('--auth-only') || name.startsWith('signin-') || name === 'expired-link' || name === 'password-setup' || name === 'settings-password')) {
     await call('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width === 390 })
     await call('Emulation.setTouchEmulationEnabled', { enabled: width === 390 })
     const loader = name.startsWith('loader')
@@ -56,7 +59,8 @@ try {
       const timeout = setTimeout(() => reject(new Error('Page load timed out')), 15000)
       onPageLoaded = () => { clearTimeout(timeout); resolve() }
     })
-    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?theme=${theme}&user=${user}${loader ? '&loader=1' : ''}${route === 'catalog' ? '&catalogEdge=1' : ''}${name === 'signin-code' ? '&live=1' : ''}#/${route}` })
+    const liveAuth = name.startsWith('signin-') || name === 'password-setup' || name === 'settings-password'
+    const navigation = await call('Page.navigate', { url: `http://127.0.0.1:5174/scripts/ui-review.html?case=${name}&theme=${theme}&user=${user}${loader ? '&loader=1' : ''}${route === 'catalog' ? '&catalogEdge=1' : ''}${liveAuth ? '&live=1' : ''}#/${route}` })
     if (!navigation.loaderId) onPageLoaded()
     await pageLoaded
     await evaluate(`new Promise((resolve,reject)=>{let tries=0;const check=()=>{if(document.querySelector('${loader ? '.workspace-loader' : '.ol-page'}'))resolve(true);else if(++tries>100)reject('App not ready');else setTimeout(check,100)};check()})`)
@@ -71,14 +75,24 @@ try {
     if (name === 'signin-confirm') {
       state.confirmWaitsForClick = await evaluate(`document.querySelector('h1')?.textContent === 'Finish signing in' && !window.__verifyLinkCalls`)
       await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in to The External Brain')).click()`)
-      state.confirmSignsIn = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(window.__verifyLinkCalls === 1 && location.hash === '#/'),100))`)
+      state.confirmSignsIn = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(window.__verifyLinkCalls === 1 && location.hash === '#/password' && !!document.querySelector('input[autocomplete="new-password"]')),100))`)
     }
+    if (name === 'signin-password') state.passwordLogin = await evaluate(`!!document.querySelector('input[autocomplete="current-password"]') && !document.querySelector('input[autocomplete="one-time-code"]')`)
     if (name === 'signin-code') {
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Use an email link')).click()`)
+      await evaluate(`new Promise(resolve=>setTimeout(resolve,70))`)
       state.codeInput = await evaluate(`!!document.querySelector('input[autocomplete="one-time-code"]') && !!Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Sign in with code'))`)
       await evaluate(`var email=document.querySelector('input[type=email]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(email,'member@example.test');email.dispatchEvent(new Event('input',{bubbles:true}))`)
       await evaluate(`new Promise(resolve=>setTimeout(resolve,70))`)
       await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Send sign-in email')).click()`)
-      state.codeAfterSend = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(document.activeElement === document.querySelector('input[autocomplete="one-time-code"]') && document.body.textContent.includes('Email sent — enter your code here')),150))`)
+      state.codeAfterSend = await evaluate(`new Promise(resolve=>{let tries=0;const check=()=>{const ready=document.activeElement === document.querySelector('input[autocomplete="one-time-code"]') && document.body.textContent.includes('Email sent — enter your code here');if(ready||++tries>30)resolve(ready);else setTimeout(check,100)};check()})`)
+    }
+    if (name === 'password-setup' || name === 'settings-password') {
+      state.passwordForm = await evaluate(`document.querySelectorAll('input[autocomplete="new-password"]').length === 2`)
+      await evaluate(`document.querySelectorAll('input[autocomplete="new-password"]').forEach(input=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'fictional-password-for-review');input.dispatchEvent(new Event('input',{bubbles:true}))})`)
+      await evaluate(`new Promise(resolve=>setTimeout(resolve,70))`)
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('Save password')).click()`)
+      state.passwordSaved = await evaluate(`new Promise(resolve=>setTimeout(()=>resolve(window.__passwordSaveCalls === 1 && document.body.textContent.includes('Password saved') && Array.from(document.querySelectorAll('input[autocomplete="new-password"]')).every(input=>input.value === '')),100))`)
     }
     if (route === 'catalog') {
       state.cardCount = await evaluate(`document.querySelectorAll('.catalog-card').length`)
@@ -126,5 +140,5 @@ try {
   }
   writeFileSync(join(output, 'report.json'), JSON.stringify({ results, errors }, null, 2))
   console.log(JSON.stringify({ output, results, errors }, null, 2))
-  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.confirmWaitsForClick === false || result.confirmSignsIn === false || result.codeInput === false || result.codeAfterSend === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
+  if (errors.length || results.some(result => result.overflow || result.menuOpens === false || result.menuCloses === false || result.imageLoaded === false || result.authRecovery === false || result.confirmWaitsForClick === false || result.confirmSignsIn === false || result.passwordLogin === false || result.passwordForm === false || result.passwordSaved === false || result.codeInput === false || result.codeAfterSend === false || result.detailsAccessible === false || result.detailsFit === false || result.activeDefault === false || result.sortWorks === false || result.activeToggle === false || result.inactiveHidden === false || result.categoryFilters === false || result.leadSearch === false || result.emptySearch === false || result.visitorActiveOnly === false || result.canvasSized === false || (result.canvasChanges !== undefined && result.canvasChanges === result.reducedMotion))) process.exitCode = 1
 } finally { socket?.close(); chrome.kill() }

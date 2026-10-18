@@ -150,6 +150,7 @@ import {
   FlaskConical, HeartPulse, House, IdCard, Image, Inbox, LogIn, LogOut, MessageSquare,
   Maximize2, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Save, Send, Settings, ShieldCheck, Sparkles, SquareArrowOutUpRight, Sun, Trash2, TriangleAlert, UserPlus, X,
 } from 'lucide-react'
+import { openPasswordSetup, PASSWORD_MIN_LENGTH, passwordError } from './auth'
 
 type AppProps = {
   data: Data
@@ -157,6 +158,8 @@ type AppProps = {
   onAction: (action: string, payload: any) => Promise<void>
   mode: 'demo' | 'live'
   onSignIn: (email: string, details?: ProfileDetails) => Promise<void>
+  onSignInWithPassword?: (email: string, password: string) => Promise<void>
+  onUpdatePassword?: (password: string) => Promise<void>
   onVerifyCode?: (email: string, code: string) => Promise<void>
   onVerifyLink?: (tokenHash: string) => Promise<void>
   onSignOut: () => Promise<void>
@@ -181,7 +184,9 @@ type Ctx = {
   personName: (id: string) => string
   run: (action: string, payload: any, okMsg?: string) => Promise<boolean>
   onSignIn: (email: string, details?: ProfileDetails) => Promise<boolean>
-  onVerifyCode?: (email: string, code: string) => Promise<void>
+  onSignInWithPassword?: (email: string, password: string) => Promise<boolean>
+  onUpdatePassword?: (password: string) => Promise<boolean>
+  onVerifyCode?: (email: string, code: string) => Promise<boolean>
   onVerifyLink?: (tokenHash: string) => Promise<boolean>
   onSignOut: () => Promise<void>
   uploadRmImage: (docId: string, initiativeId: string, file: File) => Promise<{ path: string, url: string }>
@@ -641,20 +646,21 @@ function TopBar({ ctx, nav, route, navOpen, onToggleNav, onNavigate, navToggleRe
 // --- forms ------------------------------------------------------------
 
 /**
- * Sign in, or create an account. Both request an email; a new
- * account additionally gives a name (required) and, if they want, a major and a
- * line about their research interests. Returning members send email only, so an
- * account that already exists keeps the profile it has.
+ * New accounts verify their email before setting a password. Returning members
+ * use a password or request an email link to set/reset one.
  */
 function SignInPanel({ ctx }: { ctx: Ctx }) {
   const [newAccount, setNewAccount] = useState(false)
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [emailLogin, setEmailLogin] = useState(false)
   const [name, setName] = useState('')
   const [major, setMajor] = useState('')
   const [interests, setInterests] = useState('')
   const [code, setCode] = useState('')
   const [emailSent, setEmailSent] = useState(false)
   const codeInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (emailSent && !ctx.busy) codeInputRef.current?.focus() }, [emailSent, ctx.busy])
   if (ctx.mode === 'demo') {
     return (
       <div className="card">
@@ -669,19 +675,27 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
   }
   const details = normalizeProfileDetails({ name, major, interests })
   const problem = profileDetailsError(details)
+  const usePassword = !newAccount && !emailLogin && !!ctx.onSignInWithPassword
+  const changeMode = (creating: boolean) => {
+    setNewAccount(creating)
+    setEmailLogin(false)
+    setPassword('')
+    setCode('')
+    setEmailSent(false)
+  }
   return (
     <div className="card">
       <h3>{newAccount ? 'Create your account' : 'Sign in'}</h3>
       <div className="tabs">
         <button
           type="button" className={`tab ${newAccount ? '' : 'active'}`}
-          onClick={() => setNewAccount(false)}
+          disabled={ctx.busy} onClick={() => changeMode(false)}
         >
           I have an account
         </button>
         <button
           type="button" className={`tab ${newAccount ? 'active' : ''}`}
-          onClick={() => setNewAccount(true)}
+          disabled={ctx.busy} onClick={() => changeMode(true)}
         >
           I am new here
         </button>
@@ -692,10 +706,16 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
           e.preventDefault()
           if (!email.trim()) return
           if (newAccount && problem) return
+          if (usePassword) {
+            if (password && await ctx.onSignInWithPassword?.(email.trim(), password)) {
+              setPassword('')
+              go('#/')
+            }
+            return
+          }
           const sent = await ctx.onSignIn(email.trim(), newAccount ? details : undefined)
-          if (sent && !newAccount) {
+          if (sent) {
             setEmailSent(true)
-            requestAnimationFrame(() => codeInputRef.current?.focus())
           }
         }}
       >
@@ -726,27 +746,44 @@ function SignInPanel({ ctx }: { ctx: Ctx }) {
         ) : null}
         <Field label="University email">
           <input
-            type="email" required placeholder="you@ucsd.edu" value={email}
+            type="email" autoComplete="username" required placeholder="you@ucsd.edu" value={email}
             onChange={(e) => { setEmail(e.target.value); setEmailSent(false) }} disabled={ctx.busy}
           />
         </Field>
-        <button className="btn" disabled={ctx.busy || (newAccount && !!problem)}>
-          <LogIn size={16} /> Send sign-in email
+        {usePassword ? (
+          <Field label="Password">
+            <input type="password" autoComplete="current-password" required value={password}
+              onChange={(e) => setPassword(e.target.value)} disabled={ctx.busy} />
+          </Field>
+        ) : null}
+        <button className="btn" disabled={ctx.busy || (newAccount && !!problem) || (usePassword && !password)}>
+          <LogIn size={16} /> {usePassword ? 'Sign in' : 'Send sign-in email'}
         </button>
         {newAccount && problem && name.length ? (
           <span className="field-hint" role="alert">{problem}</span>
         ) : null}
         <span className="field-hint">
           {newAccount
-            ? 'New accounts stay pending until Operations or Research approve them. Your details are saved with your account and you can edit them from Settings at any time.'
-            : 'We email you sign-in instructions. Your name, major and interests stay exactly as they are.'}
+            ? 'Open the link in your email to sign in, then set your password. New accounts stay pending until Operations or Research approve them. You can edit your details from Settings at any time.'
+            : usePassword ? 'Sign in with your email and the password you set after email verification.'
+              : 'Open the email link to sign in and set or change your password.'}
         </span>
       </form>
-      {!newAccount && ctx.onVerifyCode ? (
+      {!newAccount && ctx.onSignInWithPassword ? (
+        <button type="button" className="btn ghost" disabled={ctx.busy} onClick={() => {
+          setEmailLogin(!emailLogin); setPassword(''); setCode(''); setEmailSent(false)
+        }}>
+          {usePassword ? 'Forgot password or need to set one? Use an email link' : 'Use password instead'}
+        </button>
+      ) : null}
+      {!usePassword && ctx.onVerifyCode && (!newAccount || emailSent) ? (
         <form className="stack signin-code-form" onSubmit={async (event: FormEvent) => {
           event.preventDefault()
           if (!email.trim() || !/^\d{6}$/.test(code)) return
-          await ctx.onVerifyCode?.(email.trim(), code)
+          if (await ctx.onVerifyCode?.(email.trim(), code)) {
+            setCode('')
+            openPasswordSetup()
+          }
         }}>
           <h4>{emailSent ? 'Email sent — enter your code here' : 'Have a six-digit email code?'}</h4>
           <Field label="Email code" hint="Use the code in your latest email from The External Brain, if one is included.">
@@ -2349,13 +2386,57 @@ function AuthLinkError({ expired, signedIn }: { expired: boolean; signedIn: bool
   )
 }
 
+function PasswordForm({ ctx, setup = false }: { ctx: Ctx; setup?: boolean }) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [saved, setSaved] = useState(false)
+  const problem = passwordError(password, confirmation)
+  if (ctx.mode !== 'live' || !ctx.me || !ctx.onUpdatePassword) return null
+  return (
+    <div className="card">
+      {setup ? <h1>Set your password</h1> : <h3>Password</h3>}
+      <p className="muted">Choose a password to sign in with your email next time. You can change it here whenever you need to.</p>
+      {saved ? (
+        <p role="status">Password saved. You can now sign in with your email and password.</p>
+      ) : null}
+      <form className="stack" onSubmit={async (event: FormEvent) => {
+        event.preventDefault()
+        if (problem || ctx.busy) return
+        if (await ctx.onUpdatePassword?.(password)) {
+          setPassword(''); setConfirmation(''); setSaved(true)
+        }
+      }}>
+        <Field label="New password" hint={`Use at least ${PASSWORD_MIN_LENGTH} characters.`}>
+          <input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN_LENGTH}
+            value={password} disabled={ctx.busy} onChange={(event) => { setPassword(event.target.value); setSaved(false) }} />
+        </Field>
+        <Field label="Confirm new password">
+          <input type="password" autoComplete="new-password" required minLength={PASSWORD_MIN_LENGTH}
+            value={confirmation} disabled={ctx.busy} onChange={(event) => { setConfirmation(event.target.value); setSaved(false) }} />
+        </Field>
+        {problem && confirmation ? <span className="field-hint" role="alert">{problem}</span> : null}
+        <button className="btn" disabled={ctx.busy || !!problem}><Save size={16} /> Save password</button>
+      </form>
+      {setup && saved ? <a className="btn ghost" href="#/">Open workspace</a> : null}
+    </div>
+  )
+}
+
+function PagePassword({ ctx }: { ctx: Ctx }) {
+  if (!ctx.me) return <div className="card"><h1>Sign in to set your password</h1><p className="muted">Open a sign-in link from your email to set or reset your password.</p><a className="btn" href="#/signin">Sign in</a></div>
+  if (ctx.mode === 'demo') return <div className="card"><h1>Passwords are available on the live site</h1><a className="btn" href="#/">Open workspace</a></div>
+  return <PasswordForm key={ctx.me.id} ctx={ctx} setup />
+}
+
 function EmailLinkConfirm({ ctx }: { ctx: Ctx }) {
   const tokenHash = ctx.route.parts[1] ?? ''
-  if (!/^(?:pkce_)?[a-f0-9]{56}$/i.test(tokenHash) || !ctx.onVerifyLink) {
+  const valid = /^(?:pkce_)?[a-f0-9]{56}$/i.test(tokenHash) && !!ctx.onVerifyLink
+  useEffect(() => { if (valid && ctx.me) openPasswordSetup() }, [valid, ctx.me?.id])
+  if (!valid) {
     return <AuthLinkError expired={false} signedIn={!!ctx.me} />
   }
   if (ctx.me) {
-    return <div className="card"><h1>You are signed in</h1><a className="btn" href="#/">Open workspace</a></div>
+    return <PagePassword ctx={ctx} />
   }
   return (
     <div className="card">
@@ -2363,8 +2444,7 @@ function EmailLinkConfirm({ ctx }: { ctx: Ctx }) {
       <p className="muted">Press the button to use the sign-in email you just opened.</p>
       <button className="btn" disabled={ctx.busy} onClick={async () => {
         if (!await ctx.onVerifyLink?.(tokenHash)) return
-        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + '#/')
-        window.dispatchEvent(new Event('hashchange'))
+        openPasswordSetup()
       }}>Sign in to The External Brain</button>
     </div>
   )
@@ -2375,7 +2455,7 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
     return (
       <div className="card">
         <h3>You are signed in</h3>
-        <p className="muted">Your name, major and research interests live on your profile.</p>
+        <p className="muted">Manage your password and personal details in Settings.</p>
         <a className="btn" href="#/settings"><IdCard size={16} /> Open Settings</a>
       </div>
     )
@@ -2385,8 +2465,8 @@ function PageSignIn({ ctx }: { ctx: Ctx }) {
       <div className="section">
         <h1>Sign in to The External Brain</h1>
         <p className="muted">
-          Neuro Network at UC San Diego. Members sign in through email - there is
-          no password to remember.
+          Neuro Network at UC San Diego. Sign in with your email and password.
+          New here? Verify your email, then choose a password.
         </p>
       </div>
       <SignInPanel ctx={ctx} />
@@ -2481,6 +2561,7 @@ function PageSettings({
       {/* Keyed on the account so the form never carries one member's draft edits
           into another member's session on the same browser. */}
       <ProfileForm key={me.id} ctx={ctx} me={me} />
+      <PasswordForm key={`password-${me.id}`} ctx={ctx} />
 
       <div className="card">
         <h3>Appearance</h3>
@@ -3961,7 +4042,7 @@ const GUARDED = new Set([
   'new-proposal', 'accounts', 'assignments', 'health', 'audit', 'document', 'notifications',
 ])
 
-export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCode, onVerifyLink, onSignOut, authEmail }: AppProps) {
+export default function App({ data, userId, onAction, mode, onSignIn, onSignInWithPassword, onUpdatePassword, onVerifyCode, onVerifyLink, onSignOut, authEmail }: AppProps) {
   const [route, setRoute] = useState<Route>(() => parseHash())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -4054,8 +4135,14 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     run,
     onSignIn: (email, details) =>
       guard(() => onSignIn(email, details), 'Check your email for sign-in instructions.'),
+    onSignInWithPassword: onSignInWithPassword
+      ? (email, password) => guard(() => onSignInWithPassword(email, password))
+      : undefined,
+    onUpdatePassword: onUpdatePassword
+      ? (password) => guard(() => onUpdatePassword(password))
+      : undefined,
     onVerifyCode: onVerifyCode
-      ? (email, code) => guard(() => onVerifyCode(email, code)).then(() => undefined)
+      ? (email, code) => guard(() => onVerifyCode(email, code))
       : undefined,
     onVerifyLink: onVerifyLink
       ? (tokenHash) => guard(() => onVerifyLink(tokenHash))
@@ -4097,6 +4184,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
       case 'catalog': return <PageCatalog ctx={ctx} />
       case 'project-idea': return <PageProjectIdea ctx={ctx} />
       case 'signin': return <PageSignIn ctx={ctx} />
+      case 'password': return <PagePassword ctx={ctx} />
       case 'confirm-email': return <EmailLinkConfirm ctx={ctx} />
       case 'auth-error': return <AuthLinkError expired={route.parts[0] === 'otp_expired'} signedIn={!!me} />
       case 'settings':
@@ -4117,7 +4205,7 @@ export default function App({ data, userId, onAction, mode, onSignIn, onVerifyCo
     }
   }
 
-  const narrow = route.name === 'new-proposal' || route.name === 'signin' ||
+  const narrow = route.name === 'new-proposal' || route.name === 'signin' || route.name === 'password' ||
     route.name === 'settings' || route.name === 'profile'
   return (
     <div className={`ol ${dark?'theme-dark':''}`}>

@@ -49,13 +49,21 @@ interface DateParts {
   second: number
 }
 
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
 function partsIn(date: Date, timeZone: string): DateParts {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date)
+  // Building a formatter is slow and zonedDateTime calls this thousands of times.
+  let format = formatters.get(timeZone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    })
+    formatters.set(timeZone, format)
+  }
+  const parts = format.formatToParts(date)
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((part) => part.type === type)?.value)
   return {

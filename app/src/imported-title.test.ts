@@ -86,7 +86,10 @@ describe('imported titles', () => {
       expect(cleanImportedText('â€˜hiâ€™')).toBe('‘hi’')
     })
     it('repairs triple encoding and leaves clean text alone', () => {
-      const once = (s: string) => new TextDecoder('windows-1252').decode(new TextEncoder().encode(s))
+      // Node 22.16's TextDecoder('windows-1252') decodes 0x80-0x9F as Latin-1, so map those bytes by hand.
+      const CP1252 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ'
+      const once = (s: string) => String.fromCharCode(...new TextEncoder().encode(s))
+        .replace(/[\x80-\x9F]/g, c => CP1252[c.charCodeAt(0) - 0x80])
       expect(repairMojibake(once(once(once('“Initiative’s start” — ok'))))).toBe('“Initiative’s start” — ok')
       expect(repairMojibake('Ayşe — “café” naïve')).toBe('Ayşe — “café” naïve')
     })

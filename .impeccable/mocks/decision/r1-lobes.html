@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Lobe Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Gabarito:wght@600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#F5F1E4;color:#2C2E2A;font:600 16px/1.45 Gabarito,sans-serif}
+:root{--frontal:#2BA0FF;--temporal:#8ED462;--parietal:#F5E211;--occipital:#FF705D;--cere:#EBC1FF;--ink:#2C2E2A}
+.field{position:absolute;inset:0}
+.rail{position:absolute;left:24px;top:24px;bottom:24px;width:220px;display:flex;flex-direction:column;gap:6px}
+.brand{font-size:22px;line-height:1;letter-spacing:-.03em;margin:6px 8px 24px}
+.brand span{display:block;font-size:14px;letter-spacing:0;color:#4A4D46;margin-top:6px}
+.cap{display:flex;align-items:center;justify-content:space-between;height:46px;padding:0 6px 0 18px;border-radius:23px;font-size:16px}
+.cap i{width:34px;height:34px;border-radius:50%;background:var(--ink)}
+.cap.on{background:var(--temporal);color:var(--ink)}
+.cap.on i{background:var(--ink)}
+.cap .dot{width:12px;height:12px;border-radius:50%;margin-right:11px}
+.who{margin-top:auto;padding:0 10px;font-size:14px;color:#4A4D46}
+.lobe{position:absolute;left:250px;top:0;width:1190px;height:330px}
+main{position:absolute;left:300px;right:48px;top:44px;bottom:0}
+.head{display:flex;justify-content:space-between;align-items:flex-start;color:var(--ink);height:250px}
+h1{font-size:96px;line-height:.95;letter-spacing:-.04em}
+.head p{font-size:18px;margin-top:12px}
+.hud{display:flex;gap:10px;margin-top:8px}
+.chip{min-height:44px;padding:10px 18px;border-radius:22px;display:flex;align-items:center;gap:8px;background:#fff;color:var(--ink);font-size:16px}
+.chip b{font-size:20px}
+.grid{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;margin-top:22px}
+h2{font-size:22px;letter-spacing:-.02em;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+h2 .dot{width:14px;height:14px;border-radius:50%}
+.panel{background:#FFFDF6;border-radius:28px;padding:20px 24px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.panel .m{font-size:14px;color:#4A4D46}
+.panel .t{font-size:19px}
+.late{background:#FFE3DD}
+.when{font-size:24px;letter-spacing:-.02em;text-align:right}
+.go{display:flex;align-items:center;gap:12px;height:48px;padding:0 6px 0 22px;border-radius:24px;border:0;background:var(--parietal);color:var(--ink);font:600 16px Gabarito}
+.go i{width:36px;height:36px;border-radius:50%;background:var(--ink);display:grid;place-items:center;color:var(--parietal);font-style:normal}
+.ghost{height:48px;padding:0 22px;border-radius:24px;border:2px solid var(--ink);background:transparent;font:600 16px Gabarito}
+a.lk{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
+</style></head><body>
+<svg class="field" viewBox="0 0 1440 900" aria-hidden="true"><g fill="#2C2E2A" opacity=".28">
+<circle cx="320" cy="420" r="2"/><circle cx="388" cy="402" r="2"/><circle cx="1120" cy="840" r="2"/><circle cx="1176" cy="812" r="2"/><circle cx="1238" cy="846" r="2"/><circle cx="760" cy="866" r="2"/><circle cx="820" cy="852" r="2"/><circle cx="1390" cy="560" r="2"/><circle cx="1360" cy="610" r="2"/><circle cx="280" cy="700" r="2"/><circle cx="300" cy="780" r="2"/></g>
+<path d="M1120 840 L1176 812 L1238 846" stroke="#FF705D" stroke-width="2" fill="none"/></svg>
+<svg class="lobe" viewBox="0 0 1190 330" aria-hidden="true">
+  <path d="M0 0 H1190 V150 C1110 230 1000 200 930 250 C840 315 700 270 600 300 C470 340 330 290 210 310 C120 325 40 300 0 280 Z" fill="#8ED462"/>
+  <g fill="none" stroke="#2C2E2A" stroke-opacity=".5" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round" transform="translate(940 30)">
+    <path d="M30 120 C8 104 12 62 46 54 C58 24 104 18 124 38 C156 26 194 50 186 86 C210 104 192 146 160 142 C150 168 104 172 90 152 C62 164 34 148 30 120Z"/></g>
+</svg>
+<nav class="rail">
+  <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+  <div class="cap on">Home<i></i></div>
+  <div class="cap"><span><span class="dot" style="display:inline-block;background:var(--frontal)"></span>Catalog</span></div>
+  <div class="cap"><span><span class="dot" style="display:inline-block;background:var(--parietal)"></span>Inbox</span></div>
+  <div class="cap"><span><span class="dot" style="display:inline-block;background:var(--occipital)"></span>Review assignments</span></div>
+  <div class="cap"><span><span class="dot" style="display:inline-block;background:var(--cere)"></span>Settings</span></div>
+  <div class="who">Maya Chen · Research</div>
+</nav>
+<main>
+  <div class="head">
+    <div><h1>Week of<br>Oct 13</h1><p>Cycle closes Sun 11:59 PM</p></div>
+    <div class="hud"><span class="chip"><b>72</b> HP</span><span class="chip"><b>3</b> week streak</span><span class="chip"><b>4,820</b> pts</span></div>
+  </div>
+  <div class="grid">
+    <section>
+      <h2><span class="dot" style="background:var(--temporal)"></span>Weekly updates</h2>
+      <div class="panel"><div><div class="t">Spatial Sound Lab</div><div class="m">RM · draft saved 2h ago</div></div><div class="when">2d 6h</div><button class="go">Submit RM<i>→</i></button></div>
+      <h2 style="margin-top:22px"><span class="dot" style="background:var(--occipital)"></span>Reviews</h2>
+      <div class="panel late"><div><div class="t">Finding our research question</div><div class="m">Memory in Motion · RM v1</div></div><div class="when" style="color:#C2321D">1 day late</div><button class="ghost">Open review</button></div>
+    </section>
+    <section>
+      <h2><span class="dot" style="background:var(--parietal)"></span>Needs your attention</h2>
+      <div class="panel"><span class="t">1 account waiting</span><a class="lk">Review accounts</a></div>
+      <div class="panel"><span class="t">1 report needs a reviewer</span><a class="lk">Assign reviewer</a></div>
+      <h2 style="margin-top:22px"><span class="dot" style="background:var(--frontal)"></span>Your initiatives</h2>
+      <div class="panel" style="background:#D6ECFF"><div><div class="t">Spatial Sound Lab</div><div class="m">Neuroengineering · 4 members · you lead</div></div><span class="chip">Active</span></div>
+    </section>
+  </div>
+</main>
+</body></html>

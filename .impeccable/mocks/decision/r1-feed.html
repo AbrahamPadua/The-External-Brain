@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Snap Feed</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#0A0912;color:#fff;font:16px/1.45 Onest,sans-serif}
+.u{font-family:Unbounded,sans-serif}
+.rail{position:absolute;left:0;top:0;bottom:0;width:232px;padding:28px 18px;border-right:1px solid #221F33}
+.brand{font:700 17px/1.15 Unbounded;margin:0 6px 30px}
+.brand span{display:block;font:400 13px Onest;color:#A7A2C2;margin-top:6px}
+.rail a{display:block;padding:10px 12px;border-radius:10px;color:#C9C5DE;font-weight:500;margin-bottom:2px}
+.rail a.on{background:#fff;color:#0A0912;font-weight:700}
+.who{position:absolute;left:30px;bottom:28px;font-size:14px;color:#A7A2C2}.who b{display:block;color:#fff}
+.stage{position:absolute;left:300px;top:28px;width:500px;height:844px;border-radius:28px;overflow:hidden;
+ background:#0A0912}
+.media{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,9,18,.94) 0%,rgba(10,9,18,.75) 32%,rgba(10,9,18,0) 52%),radial-gradient(120% 80% at 80% 10%,#FF3D8B 0%,#7B2CFF 42%,#1B0F3D 80%)}
+.stage svg.net{position:absolute;inset:0;width:100%;height:100%}
+.pos{position:absolute;top:20px;left:24px;right:24px;display:flex;gap:6px}
+.pos i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.35)}.pos i.on{background:#fff}
+.cap{position:absolute;left:28px;right:110px;bottom:36px}
+.cap .by{font-weight:700;font-size:15px;margin-bottom:10px}
+.cap h1{font:800 34px/1.08 Unbounded;letter-spacing:-.02em;margin-bottom:12px}
+.cap p{color:#E4E0F5;font-size:15px}
+.due{display:inline-block;margin-top:14px;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.16);font-weight:700;font-size:14px}
+.acts{position:absolute;right:18px;bottom:36px;display:flex;flex-direction:column;gap:20px;align-items:center}
+.act{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px;font-weight:700}
+.act b{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.14)}
+.act.main b{background:#fff;color:#0A0912}
+.act svg{width:24px;height:24px}
+.side{position:absolute;left:840px;right:44px;top:28px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:30px}
+.stat{padding:16px 18px;border-radius:18px;background:#15122A}
+.stat b{display:block;font:800 30px/1 Unbounded;margin-bottom:6px}
+.stat span{color:#A7A2C2;font-size:14px}
+h2{font:700 18px Unbounded;margin-bottom:14px}
+.item{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 18px;border-radius:18px;background:#15122A;margin-bottom:10px}
+.item .t{font-weight:700}.item .m{color:#A7A2C2;font-size:14px}
+.item .late{color:#FF7A9C;font-weight:700}
+.item a{color:#fff;font-weight:700;text-decoration:underline;text-underline-offset:4px}
+.thumb{width:44px;height:58px;border-radius:10px;flex:0 0 auto}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 21.7a.5.5 0 0 0 .9 0l6.5-19a.5.5 0 0 0-.6-.6l-19 6.5a.5.5 0 0 0 0 .9l7.9 3.2a2 2 0 0 1 1.1 1.1z"/><path d="m21.9 2.1-11 11"/></symbol>
+<symbol id="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.4 3.6a2 2 0 0 1 2.8 2.8L7 18.6 3 20l1.4-4z"/></symbol>
+<symbol id="msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+</defs></svg>
+<nav class="rail">
+  <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+  <a class="on">Home</a><a>Catalog</a><a>Inbox</a><a>Review assignments</a><a>Settings</a>
+  <div class="who"><b>Maya Chen</b>Research</div>
+</nav>
+<section class="stage" aria-label="Current obligation">
+  <div class="media" aria-hidden="true"></div>
+  <svg class="net" viewBox="0 0 500 844" fill="none" aria-hidden="true">
+    <g fill="#fff" fill-opacity=".55"><circle cx="70" cy="120" r="2.5"/><circle cx="160" cy="90" r="2.5"/><circle cx="250" cy="150" r="2.5"/><circle cx="380" cy="110" r="2.5"/><circle cx="430" cy="230" r="2.5"/><circle cx="110" cy="260" r="2.5"/><circle cx="300" cy="290" r="2.5"/><circle cx="200" cy="360" r="2.5"/><circle cx="420" cy="380" r="2.5"/><circle cx="60" cy="400" r="2.5"/></g>
+    <path d="M160 90 L250 150 L380 110 M250 150 L300 290" stroke="#fff" stroke-opacity=".5" stroke-width="1.5"/>
+  </svg>
+  <div class="pos"><i class="on"></i><i></i><i></i><i></i></div>
+  <div class="cap"><div class="by">Spatial Sound Lab · your weekly update</div>
+    <h1>RM for the week of Oct 13</h1>
+    <p>Draft saved 2h ago: piloted the binaural cue task with four members and fixed the audio timing drift.</p>
+    <span class="due">Due Sun 11:59 PM · 2d 6h left</span></div>
+  <div class="acts">
+    <div class="act main"><b><svg><use href="#send"/></svg></b>Submit</div>
+    <div class="act"><b><svg><use href="#pen"/></svg></b>Edit</div>
+    <div class="act"><b><svg><use href="#msg"/></svg></b>4</div>
+    <div class="act"><b><svg><use href="#down"/></svg></b>Next</div>
+  </div>
+</section>
+<aside class="side">
+  <div class="stats"><div class="stat"><b>72</b><span>HP</span></div><div class="stat"><b>3</b><span>week streak</span></div><div class="stat"><b>4,820</b><span>season points</span></div></div>
+  <h2>Up next</h2>
+  <div class="item"><span class="thumb" style="background:linear-gradient(160deg,#FFB547,#FF3D8B)"></span><div style="flex:1"><div class="t">Finding our research question</div><div class="m">Review · Memory in Motion RM v1</div></div><span class="late">1 day late</span></div>
+  <div class="item"><span class="thumb" style="background:linear-gradient(160deg,#3DE0FF,#7B2CFF)"></span><div style="flex:1"><div class="t">1 account waiting</div><div class="m">Approve or decline</div></div><a>Review</a></div>
+  <div class="item"><span class="thumb" style="background:linear-gradient(160deg,#8CFF6B,#1FA37A)"></span><div style="flex:1"><div class="t">1 report needs a reviewer</div><div class="m">Spatial Sound Lab RM v2</div></div><a>Assign</a></div>
+</aside>
+</body></html>

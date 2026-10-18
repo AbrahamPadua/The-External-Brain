@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-10-18T18:06:00.677Z",
+        "reason": "Claude: the canon card is the category-standard exit played straight; Inter is the category default by design"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/r1-lobes.html"
+        ],
+        "createdAt": "2026-10-18T19:33:41.562Z",
+        "reason": "user confirmed: wants the Lobe Map background (#F5F1E4) for the future light version; it is also the zoo-map catalog world's specified ground"
+      }
+    ]
+  }
+}

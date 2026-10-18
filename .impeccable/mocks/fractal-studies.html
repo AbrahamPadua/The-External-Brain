@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fractal Studies</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Recursive:slnt,wght,CASL,CRSV,MONO@-15..0,300..1000,0..1,0..1,0..1&family=Nabla&family=Gabarito:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+.skin-type { --bg: #121114; --ink: #F2EFE6; --muted: #A9A49A; --rule: #2A282E; --dot: #3A3740; --accent: #FF4A1C; --veil: rgba(18, 17, 20, .9); color-scheme: dark; }
+.skin-lobe { --bg: #F5F1E4; --ink: #2C2E2A; --muted: #4A4D46; --rule: transparent; --dot: #BDB6A2; --accent: #F5E211; --veil: rgba(245, 241, 228, .93); color-scheme: light;
+  --frontal: #8ED462; --temporal: #2BA0FF; --parietal: #F5E211; --occipital: #FF705D; --cere: #EBC1FF; }
+* { box-sizing: border-box; margin: 0; }
+html, body { min-height: 100%; }
+body { background: var(--bg); color: var(--ink); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+body.skin-type { font: 400 16px/1.5 Recursive, sans-serif; }
+body.skin-lobe { font: 600 16px/1.45 Gabarito, sans-serif; }
+::selection { background: var(--accent); color: #121114; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+button { font: inherit; cursor: pointer; }
+#bg { position: fixed; left: 0; top: 0; z-index: 0; pointer-events: none; }
+#lobe { position: absolute; left: 250px; top: 0; z-index: 1; display: none; pointer-events: none; }
+.skin-lobe #lobe { display: block; }
+
+.app { position: relative; z-index: 2; display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+.rail { padding: 28px 18px; display: flex; flex-direction: column; gap: 4px; }
+.skin-type .rail { border-right: 1px solid var(--rule); background: var(--bg); }
+.brand { font-weight: 800; font-size: 20px; line-height: 1.1; margin: 0 8px 28px; }
+.brand span { display: block; font-weight: 500; font-size: 13px; color: var(--muted); margin-top: 6px; }
+.nav { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; color: var(--muted); font-weight: 600; text-decoration: none; }
+.nav i { display: none; width: 12px; height: 12px; border-radius: 50%; background: var(--c); }
+.skin-type .nav.on { background: var(--ink); color: var(--bg); }
+.skin-lobe .nav { color: var(--ink); border-radius: 24px; min-height: 46px; }
+.skin-lobe .nav i { display: inline-block; }
+.skin-lobe .nav.on { background: var(--frontal); }
+.skin-lobe .nav.on i { background: var(--ink); width: 30px; height: 30px; order: 2; margin-left: auto; }
+.who { margin-top: auto; padding: 0 12px; font-size: 14px; color: var(--muted); }
+
+main { padding: 40px 48px 120px; min-width: 0; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 30px; }
+.skin-lobe .top { min-height: 236px; }
+h1 { font-weight: 900; font-size: clamp(48px, 7vw, 92px); line-height: .92; letter-spacing: -.035em; }
+.skin-lobe h1 { font-weight: 600; letter-spacing: -.04em; line-height: .95; }
+.meta { margin-top: 14px; color: var(--muted); }
+.skin-type .meta, .skin-type .m, .skin-type .count { font-variation-settings: "MONO" 1; font-size: 13px; letter-spacing: .03em; text-transform: uppercase; }
+.hud { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.hp { text-align: right; line-height: .85; }
+.hp b { display: block; font-size: clamp(72px, 9vw, 124px); letter-spacing: -.04em; font-weight: 400; transition: font-variation-settings 900ms cubic-bezier(.16, 1, .3, 1); }
+.hp span { color: var(--muted); font-size: 13px; }
+.chips { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 15px; }
+.chip b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.skin-lobe .hud { flex-direction: row; align-items: center; }
+.skin-lobe .hp b { font-size: 20px; font-weight: 700; display: inline; }
+.skin-lobe .hp, .skin-lobe .chip { background: #fff; border-radius: 22px; padding: 10px 18px; line-height: 1.2; }
+.skin-lobe .hp span { color: var(--ink); margin-left: 4px; font-size: 15px; }
+
+.grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 36px; }
+h2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 700; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+h2 .lbl { display: flex; align-items: center; gap: 10px; }
+h2 i { display: none; width: 14px; height: 14px; border-radius: 50%; background: var(--c); }
+.skin-lobe h2 { font-size: 22px; letter-spacing: -.02em; justify-content: flex-start; padding: 0; }
+.skin-lobe h2 i { display: inline-block; }
+.count { color: var(--muted); }
+.row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.skin-lobe .row { background: #FFFDF6; border-radius: 28px; padding: 18px 22px; margin-bottom: 14px; }
+.skin-lobe .row.late { background: #FFE3DD; }
+.t { font-size: 19px; font-weight: 700; }
+.m { color: var(--muted); font-size: 14px; }
+.when { font-size: 28px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+.skin-lobe .when { font-size: 22px; font-weight: 600; }
+.late .when { color: #FF6B6B; }
+.skin-lobe .late .when { color: #C2321D; }
+.skin-type .late .when { font-variation-settings: "slnt" -15; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; padding: 0 20px; border-radius: 10px; border: 1px solid transparent; font-weight: 700; font-size: 15px; white-space: nowrap; }
+.go { background: var(--accent); color: #121114; }
+.ghost { background: transparent; color: var(--ink); border-color: color-mix(in srgb, var(--ink) 35%, transparent); }
+.knob { display: none; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--accent); place-items: center; }
+.knob svg { width: 18px; height: 18px; }
+.skin-lobe .btn { border-radius: 24px; min-height: 48px; }
+.skin-lobe .go { padding: 0 6px 0 22px; }
+.skin-lobe .go .knob { display: grid; }
+.skin-lobe .ghost { border: 2px solid var(--ink); }
+.btn.done { background: transparent; color: var(--ink); border-color: color-mix(in srgb, var(--ink) 35%, transparent); cursor: default; padding: 0 20px; }
+.btn.done .knob { display: none; }
+
+.inits { display: grid; gap: 14px; }
+.init { display: grid; grid-template-columns: 96px 1fr; gap: 18px; align-items: center; padding: 14px; }
+.skin-type .init { border: 1px solid var(--ink); }
+.skin-lobe .init { background: #FFFDF6; border-radius: 28px; }
+.init canvas { width: 96px; height: 96px; display: block; }
+
+.moment { position: fixed; inset: 0; z-index: 50; background: var(--veil); opacity: 0; pointer-events: none; transition: opacity 260ms ease; }
+.moment.on { opacity: 1; pointer-events: auto; }
+#fx { position: absolute; inset: 0; width: 100%; height: 100%; }
+.clear { position: absolute; left: 50%; opacity: 0; white-space: nowrap; transform: translateX(-50%) scale(1.8); font-size: clamp(48px, 9vw, 96px); line-height: 1; }
+.skin-type .clear { font-family: Nabla, sans-serif; }
+.skin-lobe .clear { font-weight: 700; letter-spacing: -.03em; }
+.clear.show { animation: slam 560ms cubic-bezier(.34, 1.56, .64, 1) forwards; }
+@keyframes slam { 0% { opacity: 0; transform: translateX(-50%) scale(1.8); } 60% { opacity: 1; transform: translateX(-50%) scale(.94); } 100% { opacity: 1; transform: translateX(-50%) scale(1); } }
+.tally { position: absolute; left: 50%; transform: translateX(-50%); opacity: 0; font-size: 18px; font-weight: 700; white-space: nowrap; transition: opacity 300ms ease 180ms; font-variant-numeric: tabular-nums; }
+.skin-type .tally { font-variation-settings: "MONO" 1; }
+.skin-lobe .tally { background: #fff; border-radius: 22px; padding: 10px 18px; }
+.tally.show { opacity: 1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+.dock { position: fixed; z-index: 60; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px; padding: 10px 14px; border-radius: 16px; background: #1D1B22; color: #F2EFE6; font: 500 13px/1.3 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); max-width: calc(100vw - 24px); }
+.dock .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: #2C2933; }
+.dock button { border: 0; border-radius: 8px; padding: 8px 12px; min-height: 36px; background: transparent; color: #CFCAD8; font-weight: 600; }
+.dock button[aria-pressed="true"] { background: #F2EFE6; color: #121114; }
+.dock .replay { background: #FF4A1C; color: #121114; }
+.dock small { color: #A9A49A; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 16px; border-right: 0; }
+  .brand { margin: 0 auto 0 4px; }
+  .rail .nav:not(.on), .who { display: none; }
+  #lobe { left: 0; }
+  main { padding: 20px 16px 150px; }
+  .top { flex-direction: column; }
+  .hud { align-items: flex-start; }
+  .grid { grid-template-columns: 1fr; gap: 24px; }
+  .row { grid-template-columns: 1fr auto; }
+  .row .btn { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body class="skin-type">
+<canvas id="bg" aria-hidden="true"></canvas>
+<svg id="lobe" aria-hidden="true"><path id="lobePath" fill="#8ED462"/></svg>
+<div class="app">
+  <nav class="rail" aria-label="Primary">
+    <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+    <a class="nav on" href="#" style="--c: var(--frontal)"><i></i>Home</a>
+    <a class="nav" href="#" style="--c: var(--temporal)"><i></i>Catalog</a>
+    <a class="nav" href="#" style="--c: var(--parietal)"><i></i>Inbox</a>
+    <a class="nav" href="#" style="--c: var(--occipital)"><i></i>Review assignments</a>
+    <a class="nav" href="#" style="--c: var(--cere)"><i></i>Settings</a>
+    <div class="who">Maya Chen · Research</div>
+  </nav>
+  <main>
+    <div class="top">
+      <div><h1>Week of<br>Oct 13</h1><p class="meta">Cycle closes Sun 11:59 PM</p></div>
+      <div class="hud">
+        <div class="hp"><b id="hpNum">72</b><span>HP</span></div>
+        <div class="chips"><span class="chip"><b id="streak">3</b> week streak</span><span class="chip"><b id="pts">4,820</b> pts</span></div>
+      </div>
+    </div>
+    <div class="grid">
+      <section>
+        <h2><span class="lbl"><i style="--c: var(--frontal)"></i>Weekly updates</span><span class="count">1 due</span></h2>
+        <div class="row">
+          <div><div class="t">Spatial Sound Lab</div><div class="m" id="rmMeta">RM · draft saved 2h ago</div></div>
+          <div class="when" id="rmWhen">2d 6h</div>
+          <button type="button" class="btn go" id="submit"><span id="submitText">Submit RM</span><i class="knob"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></i></button>
+        </div>
+        <h2 style="margin-top: 28px"><span class="lbl"><i style="--c: var(--occipital)"></i>Reviews</span><span class="count">1 overdue</span></h2>
+        <div class="row late">
+          <div><div class="t">Finding our research question</div><div class="m">Memory in Motion · RM v1</div></div>
+          <div class="when">1d late</div>
+          <button type="button" class="btn ghost">Open review</button>
+        </div>
+      </section>
+      <section>
+        <h2><span class="lbl"><i style="--c: var(--temporal)"></i>Your initiatives</span><span class="count">2</span></h2>
+        <div class="inits">
+          <div class="init"><canvas data-name="Spatial Sound Lab" data-c="#2BA0FF"></canvas><div><div class="t">Spatial Sound Lab</div><div class="m">Neuroengineering · 4 members · you lead</div></div></div>
+          <div class="init"><canvas data-name="Memory in Motion" data-c="#FF705D"></canvas><div><div class="t">Memory in Motion</div><div class="m">Cognitive science · 5 members</div></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="moment" id="moment">
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div class="clear" id="clear" aria-hidden="true"></div>
+  <div class="tally" id="tally" aria-hidden="true">+5 HP · +<span id="tallyPts">0</span> pts</div>
+  <p class="sr" id="srMsg" role="status" aria-live="polite"></p>
+</div>
+<div class="dock" role="group" aria-label="Prototype controls">
+  <span class="seg" aria-label="Skin"><button type="button" data-skin="type" aria-pressed="true">Living Type</button><button type="button" data-skin="lobe" aria-pressed="false">Lobe Map</button></span>
+  <span class="seg" aria-label="Background"><button type="button" data-bg="dots" aria-pressed="false">Dots</button><button type="button" data-bg="fractal" aria-pressed="true">Fractal</button></span>
+  <button type="button" class="replay" id="replay">Replay submit</button>
+  <small>Prototype · fictional data</small>
+</div>
+<script>
+const $ = id => document.getElementById(id)
+const rand = (a, b) => a + Math.random() * (b - a)
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 } }
+function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) } return h >>> 0 }
+const S = { skin: 'type', bg: 'fractal' }
+// Line colours for drawing on cream; the light swatches (yellow, lilac) are too faint as thin strokes.
+const LOBE_LINE = { frontal: '#4FA82B', parietal: '#C99700', temporal: '#2B8FE6', occipital: '#E8553F', cere: '#A86AE0' }
+const LOBE_TEXT = ['#3D8A1E', '#1F7ACC', '#8A6A00', '#C93A25', '#8E4FD0']
+
+// Self-similar branching: every segment forks into two or three shorter, slightly bent children.
+function dendrite(x, y, ang, len, depth, rng, out) {
+  const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len
+  out.push({ x1: x, y1: y, x2, y2, depth })
+  if (depth <= 0) return
+  const n = rng() < .3 ? 3 : 2
+  for (let i = 0; i < n; i++) dendrite(x2, y2, ang + (i - (n - 1) / 2) * .62 + (rng() - .5) * .5, len * (.6 + rng() * .16), depth - 1, rng, out)
+}
+
+// ---- Background: jittered neuron dots, sparse arbors, occasional sprouts, pointer parallax.
+const bg = $('bg'), bctx = bg.getContext('2d'), stat = document.createElement('canvas'), sctx = stat.getContext('2d')
+const M = 24
+let W = 0, H = 0, DPR = 1, nodes = [], sprouts = [], nextSprout = 0
+const par = { x: 0, y: 0, tx: 0, ty: 0 }
+const cssVar = name => getComputedStyle(document.body).getPropertyValue(name).trim()
+function buildBg() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(2, devicePixelRatio || 1)
+  const w = W + 2 * M, h = H + 2 * M
+  for (const c of [bg, stat]) { c.width = Math.round(w * DPR); c.height = Math.round(h * DPR) }
+  bg.style.width = w + 'px'; bg.style.height = h + 'px'
+  const rng = mulberry32(7), gap = 36
+  nodes = []
+  for (let y = gap / 2; y < h; y += gap) for (let x = gap / 2; x < w; x += gap) {
+    const n = { x: x + (rng() - .5) * 18, y: y + (rng() - .5) * 18, arbor: null }
+    if (rng() < .2) { const segs = []; dendrite(n.x, n.y, rng() * 6.283, 6 + rng() * 6, 2, rng, segs); n.arbor = segs }
+    nodes.push(n)
+  }
+  sprouts = []
+  paintStatic()
+}
+function paintStatic() {
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0); sctx.clearRect(0, 0, W + 2 * M, H + 2 * M)
+  const dot = cssVar('--dot')
+  sctx.fillStyle = dot; sctx.strokeStyle = dot; sctx.lineCap = 'round'
+  for (const n of nodes) {
+    sctx.globalAlpha = 1
+    sctx.beginPath(); sctx.arc(n.x, n.y, 1.3, 0, 6.283); sctx.fill()
+    if (S.bg !== 'fractal' || !n.arbor) continue
+    sctx.globalAlpha = S.skin === 'lobe' ? .55 : 1
+    for (const s of n.arbor) { sctx.lineWidth = .5 + s.depth * .35; sctx.beginPath(); sctx.moveTo(s.x1, s.y1); sctx.lineTo(s.x2, s.y2); sctx.stroke() }
+  }
+}
+function spawnSprout(now) {
+  const a = nodes[Math.floor(Math.random() * nodes.length)]
+  const near = nodes.filter(n => n !== a && Math.hypot(n.x - a.x, n.y - a.y) < 80)
+  if (!near.length) return
+  const b = near[Math.floor(Math.random() * near.length)], segs = []
+  if (S.bg === 'fractal') {
+    dendrite(a.x, a.y, Math.atan2(b.y - a.y, b.x - a.x) + Math.PI, 10 + Math.random() * 6, 3, mulberry32(Math.random() * 1e9 | 0), segs)
+    segs.sort((p, q) => q.depth - p.depth)
+  }
+  const colors = S.skin === 'type' ? ['#FF4A1C'] : Object.values(LOBE_LINE)
+  sprouts.push({ a, b, segs, start: now, color: colors[Math.floor(Math.random() * colors.length)] })
+}
+function drawSprout(sp, now) {
+  const t = now - sp.start, grow = Math.min(1, t / 900), fade = t < 1700 ? 1 : Math.max(0, 1 - (t - 1700) / 1300)
+  bctx.globalAlpha = fade * .9; bctx.strokeStyle = sp.color; bctx.fillStyle = sp.color; bctx.lineCap = 'round'
+  const lp = Math.min(1, grow * 2)
+  bctx.lineWidth = 1.4; bctx.beginPath(); bctx.moveTo(sp.a.x, sp.a.y); bctx.lineTo(sp.a.x + (sp.b.x - sp.a.x) * lp, sp.a.y + (sp.b.y - sp.a.y) * lp); bctx.stroke()
+  for (let i = 0; i < Math.floor(sp.segs.length * grow); i++) {
+    const s = sp.segs[i]
+    bctx.lineWidth = .6 + s.depth * .4; bctx.beginPath(); bctx.moveTo(s.x1, s.y1); bctx.lineTo(s.x2, s.y2); bctx.stroke()
+  }
+  for (const n of [sp.a, sp.b]) { bctx.beginPath(); bctx.arc(n.x, n.y, 2.4, 0, 6.283); bctx.fill() }
+  bctx.globalAlpha = 1
+  return t < 3000
+}
+
+// ---- Lobe Map header: the coastline gets the same rounded fold at four shrinking scales, like gyri.
+function lobePath(w, h, fractal) {
+  const P = [[w, h * .46], [w * .72, h * .98], [w * .3, h * .7], [0, h * .94]], rng = mulberry32(11)
+  const oct = [0, 1, 2, 3].map(k => ({ amp: h * .055 / Math.pow(2.6, k), freq: 3 * Math.pow(2, k), ph: rng() * 6.283 }))
+  let d = `M0 0H${w}`
+  for (let i = 0; i <= 240; i++) {
+    const t = i / 240, u = 1 - t
+    const x = u * u * u * P[0][0] + 3 * u * u * t * P[1][0] + 3 * u * t * t * P[2][0] + t * t * t * P[3][0]
+    const y = u * u * u * P[0][1] + 3 * u * u * t * P[1][1] + 3 * u * t * t * P[2][1] + t * t * t * P[3][1]
+    const dx = 3 * u * u * (P[1][0] - P[0][0]) + 6 * u * t * (P[2][0] - P[1][0]) + 3 * t * t * (P[3][0] - P[2][0])
+    const dy = 3 * u * u * (P[1][1] - P[0][1]) + 6 * u * t * (P[2][1] - P[1][1]) + 3 * t * t * (P[3][1] - P[2][1])
+    const len = Math.hypot(dx, dy) || 1
+    const off = fractal ? oct.reduce((s, o) => s + o.amp * Math.sin(o.freq * t * 6.283 + o.ph), 0) : 0
+    d += `L${(x - dy / len * off).toFixed(1)} ${(y + dx / len * off).toFixed(1)}`
+  }
+  return d + 'Z'
+}
+function buildLobe() {
+  const svg = $('lobe'), narrow = innerWidth <= 860, w = innerWidth - (narrow ? 0 : 250), h = narrow ? 300 : 330
+  svg.setAttribute('width', w); svg.setAttribute('height', h); svg.setAttribute('viewBox', `0 0 ${w} ${h}`)
+  $('lobePath').setAttribute('d', lobePath(w, h, S.bg === 'fractal'))
+}
+
+// ---- Initiative emblems: a soma with fractal dendrites, seeded by the initiative's name.
+function drawSigils() {
+  document.querySelectorAll('.init canvas').forEach(cv => {
+    const s = 96, g = cv.getContext('2d'), rng = mulberry32(hash(cv.dataset.name)), cx = s / 2, cy = s / 2
+    cv.width = s * DPR; cv.height = s * DPR; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, s, s)
+    if (S.skin === 'lobe') { g.fillStyle = cv.dataset.c; g.beginPath(); g.arc(cx, cy, s / 2, 0, 6.283); g.fill() }
+    const segs = [], k = 5 + Math.floor(rng() * 3), base = rng() * 6.283
+    for (let i = 0; i < k; i++) dendrite(cx, cy, base + i * 6.283 / k + (rng() - .5) * .5, 9 + rng() * 4, 3, rng, segs)
+    g.strokeStyle = S.skin === 'type' ? '#F2EFE6' : '#FFFFFF'; g.lineCap = 'round'
+    for (const sg of segs) { g.lineWidth = .6 + sg.depth * .45; g.beginPath(); g.moveTo(sg.x1, sg.y1); g.lineTo(sg.x2, sg.y2); g.stroke() }
+    g.fillStyle = S.skin === 'type' ? '#FF4A1C' : '#2C2E2A'; g.beginPath(); g.arc(cx, cy, 5, 0, 6.283); g.fill()
+  })
+}
+
+// ---- Submit moment: dots fly to a brain outline, then a dendritic tree grows inside it (space colonization).
+const BRAIN = [[.06, .52], [.04, .36], [.12, .17], [.30, .05], [.50, .02], [.70, .06], [.86, .16], [.96, .32], [.97, .48], [.91, .58], [.94, .67], [.86, .79], [.72, .81], [.64, .73], [.60, .77], [.59, .94], [.52, .94], [.51, .75], [.40, .71], [.28, .69], [.18, .63]]
+function catmull(pts, per) {
+  const out = [], n = pts.length
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n]
+    for (let s = 0; s < per; s++) {
+      const t = s / per, t2 = t * t, t3 = t2 * t
+      out.push([0, 1].map(k => .5 * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)))
+    }
+  }
+  return out
+}
+function inside(x, y, poly) {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j]
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c
+  }
+  return c
+}
+function lobeOf(u, v) {
+  if (u > .62 && v > .62) return 'cere'
+  if (u < .40) return 'frontal'
+  if (v > .50 && u < .72) return 'temporal'
+  if (u > .72) return 'occipital'
+  return 'parietal'
+}
+const fx = $('fx'), fctx = fx.getContext('2d'), layer = document.createElement('canvas'), lctx = layer.getContext('2d')
+let moment = { active: false }
+function startMoment() {
+  const now = performance.now()
+  fx.width = layer.width = Math.round(W * DPR); fx.height = layer.height = Math.round(H * DPR)
+  lctx.setTransform(DPR, 0, 0, DPR, 0, 0); lctx.clearRect(0, 0, W, H)
+  const bw = Math.min(W * .84, 640, (H - 220) / .8), bh = bw * .8, ox = (W - bw) / 2, oy = Math.max(24, (H - bh) / 2 - 60)
+  const outline = catmull(BRAIN, 18).map(([u, v]) => [ox + u * bw, oy + v * bh])
+  const visible = nodes.map(n => ({ x: n.x - M + par.x, y: n.y - M + par.y })).filter(p => p.x > 0 && p.x < W && p.y > 0 && p.y < H)
+  for (let i = visible.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [visible[i], visible[j]] = [visible[j], visible[i]] }
+  const stride = Math.floor(outline.length / 44), flyers = []
+  for (let i = 0, k = 0; i < outline.length && k < visible.length; i += stride, k++) flyers.push({ from: visible[k], to: outline[i], delay: k * 7, x: visible[k].x, y: visible[k].y })
+  const attract = [], want = Math.round(300 + bw * .15)
+  for (let k = 0; k < want * 5 && attract.length < want; k++) { const x = ox + Math.random() * bw, y = oy + Math.random() * bh; if (inside(x, y, outline)) attract.push({ x, y }) }
+  const root = { x: ox + .555 * bw, y: oy + .93 * bh, gx: 0, gy: 0, gc: 0 }
+  moment = { active: true, closing: false, cleared: false, done: false, steps: 0, start: now, ox, oy, bw, bh, flyers, attract, tree: [root], newest: [], Di: bw * .17, Dk: bw * .024, step: bw * .013 }
+  $('clear').style.top = (oy + bh + 14) + 'px'
+  $('tally').style.top = (oy + bh + 14 + Math.min(96, Math.max(48, W * .09)) + 18) + 'px'
+  $('moment').classList.add('on')
+}
+function grow(m) {
+  for (const a of m.attract) {
+    let best = null, bd = m.Di * m.Di
+    for (const n of m.tree) { const d = (n.x - a.x) ** 2 + (n.y - a.y) ** 2; if (d < bd) { bd = d; best = n } }
+    if (best) { const d = Math.sqrt(bd) || 1; best.gx += (a.x - best.x) / d; best.gy += (a.y - best.y) / d; best.gc++ }
+  }
+  const born = []
+  for (const n of m.tree) {
+    if (!n.gc) continue
+    const l = Math.hypot(n.gx, n.gy)
+    if (l > .1) born.push({ x: n.x + n.gx / l * m.step, y: n.y + n.gy / l * m.step, gx: 0, gy: 0, gc: 0, px: n.x, py: n.y })
+    n.gx = n.gy = n.gc = 0
+  }
+  if (!born.length) {
+    // No attractor within reach yet: extend the trunk straight up from the brainstem.
+    if (m.tree.length < 60) { const n = m.tree[m.tree.length - 1]; born.push({ x: n.x, y: n.y - m.step, gx: 0, gy: 0, gc: 0, px: n.x, py: n.y }) }
+    else m.done = true
+  }
+  for (const b of born) {
+    m.tree.push(b)
+    for (let i = m.attract.length - 1; i >= 0; i--) if ((m.attract[i].x - b.x) ** 2 + (m.attract[i].y - b.y) ** 2 < m.Dk * m.Dk) m.attract.splice(i, 1)
+  }
+  m.newest = born
+  return born
+}
+function drawBranches(born) {
+  lctx.lineCap = 'round'
+  for (const b of born) {
+    lctx.strokeStyle = S.skin === 'type' ? 'rgba(242,239,230,.85)' : LOBE_LINE[lobeOf((b.x - moment.ox) / moment.bw, (b.y - moment.oy) / moment.bh)]
+    lctx.lineWidth = S.skin === 'type' ? 1.1 : 1.7
+    lctx.beginPath(); lctx.moveTo(b.px, b.py); lctx.lineTo(b.x, b.y); lctx.stroke()
+  }
+}
+function stepMoment(now) {
+  const m = moment, t = now - m.start
+  // Dots land by about 1s; the tree grows after, two steps a frame so it reads as growth.
+  if (t > 900 && !m.done) for (let k = 0; k < 2 && !m.done; k++) { drawBranches(grow(m)); if (++m.steps > 260 || m.attract.length < 10) m.done = true }
+  fctx.setTransform(1, 0, 0, 1, 0, 0); fctx.clearRect(0, 0, fx.width, fx.height); fctx.drawImage(layer, 0, 0); fctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  const ink = S.skin === 'type' ? '#F2EFE6' : '#2C2E2A', dot = S.skin === 'type' ? '#FF4A1C' : '#2C2E2A'
+  m.flyers.forEach(f => { const p = Math.min(1, Math.max(0, (t - f.delay) / 620)), e = 1 - Math.pow(1 - p, 3); f.x = f.from.x + (f.to[0] - f.from.x) * e; f.y = f.from.y + (f.to[1] - f.from.y) * e; f.landed = p >= 1 })
+  fctx.strokeStyle = ink; fctx.lineWidth = 1.6; fctx.beginPath()
+  m.flyers.forEach((f, i) => { const g = m.flyers[(i + 1) % m.flyers.length]; if (f.landed && g.landed) { fctx.moveTo(f.x, f.y); fctx.lineTo(g.x, g.y) } })
+  fctx.stroke()
+  fctx.fillStyle = dot
+  for (const f of m.flyers) { fctx.beginPath(); fctx.arc(f.x, f.y, 2.8, 0, 6.283); fctx.fill() }
+  if (!m.done) for (const b of m.newest) { fctx.beginPath(); fctx.arc(b.x, b.y, 1.8, 0, 6.283); fctx.fill() }
+  if (!m.cleared && (t > 2300 || (m.done && t > 1500))) { m.cleared = true; reward() }
+  if (t > 4800 && !m.closing) closeMoment()
+}
+function closeMoment() {
+  if (!moment.active || moment.closing) return
+  moment.closing = true
+  $('moment').classList.remove('on')
+  setTimeout(() => { moment.active = false; $('clear').classList.remove('show'); $('tally').classList.remove('show') }, 300)
+}
+
+// ---- App state around the moment.
+const state = { hp: 72, pts: 4820, streak: 3, submitted: false }
+function setHp(hp) { $('hpNum').textContent = hp; $('hpNum').style.fontVariationSettings = S.skin === 'type' ? `"wght" ${hp * 10}` : '' }
+function countTo(el, from, to, ms, fmt) {
+  const t0 = performance.now()
+  const tick = () => { const p = Math.min(1, Math.max(0, (performance.now() - t0) / ms)); el.textContent = fmt(Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)))); if (p < 1) requestAnimationFrame(tick) }
+  requestAnimationFrame(tick)
+}
+function renderClear() {
+  const text = 'RM CLEAR!', el = $('clear')
+  el.innerHTML = S.skin === 'type' ? text : [...text].map((c, i) => c === ' ' ? ' ' : `<span style="color:${LOBE_TEXT[i % LOBE_TEXT.length]}">${c}</span>`).join('')
+}
+function reward() {
+  renderClear()
+  $('clear').classList.add('show'); $('tally').classList.add('show')
+  countTo($('tallyPts'), 0, 820, 900, n => n)
+  $('srMsg').textContent = 'RM submitted on time. Plus 5 HP, plus 820 points.'
+  state.hp = 77; state.streak = 4; setHp(state.hp)
+  $('streak').textContent = state.streak
+  countTo($('pts'), state.pts, state.pts + 820, 1200, n => n.toLocaleString('en-US')); state.pts += 820
+}
+function submit() {
+  if (state.submitted || moment.active) return
+  state.submitted = true
+  const btn = $('submit')
+  btn.classList.add('done'); btn.setAttribute('aria-disabled', 'true'); $('submitText').textContent = 'Submitted'
+  $('rmMeta').textContent = 'Submitted Sat 4:12 PM, on time · locked'; $('rmWhen').textContent = ''
+  startMoment()
+}
+function reset() {
+  Object.assign(state, { hp: 72, pts: 4820, streak: 3, submitted: false })
+  setHp(72); $('pts').textContent = '4,820'; $('streak').textContent = '3'
+  const btn = $('submit'); btn.classList.remove('done'); btn.removeAttribute('aria-disabled'); $('submitText').textContent = 'Submit RM'
+  $('rmMeta').textContent = 'RM · draft saved 2h ago'; $('rmWhen').textContent = '2d 6h'
+}
+
+function loop() {
+  const now = performance.now()
+  if (now > nextSprout) { spawnSprout(now); nextSprout = now + rand(2200, 3800) }
+  par.x += (par.tx - par.x) * .06; par.y += (par.ty - par.y) * .06
+  bg.style.transform = `translate3d(${(par.x - M).toFixed(2)}px, ${(par.y - M).toFixed(2)}px, 0)`
+  bctx.setTransform(1, 0, 0, 1, 0, 0); bctx.clearRect(0, 0, bg.width, bg.height); bctx.drawImage(stat, 0, 0)
+  bctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  sprouts = sprouts.filter(sp => drawSprout(sp, now))
+  if (moment.active) stepMoment(now)
+  requestAnimationFrame(loop)
+}
+function applySkin() {
+  document.body.className = 'skin-' + S.skin
+  document.querySelectorAll('[data-skin]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.skin === S.skin)))
+  document.querySelectorAll('[data-bg]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.bg === S.bg)))
+  setHp(state.hp); paintStatic(); buildLobe(); drawSigils(); sprouts = []
+}
+
+document.querySelectorAll('[data-skin]').forEach(b => b.addEventListener('click', () => { S.skin = b.dataset.skin; applySkin() }))
+document.querySelectorAll('[data-bg]').forEach(b => b.addEventListener('click', () => { S.bg = b.dataset.bg; applySkin() }))
+$('submit').addEventListener('click', submit)
+$('replay').addEventListener('click', () => { if (moment.active) return; reset(); setTimeout(submit, 200) })
+$('moment').addEventListener('click', closeMoment)
+addEventListener('keydown', e => { if (e.key === 'Escape') closeMoment() })
+addEventListener('pointermove', e => { par.tx = (e.clientX / W - .5) * -14; par.ty = (e.clientY / H - .5) * -14 })
+let resizeTimer
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { buildBg(); buildLobe(); drawSigils() }, 150) })
+
+const q = new URLSearchParams(location.search)
+if (q.get('skin') === 'lobe') S.skin = 'lobe'
+if (q.get('bg') === 'dots') S.bg = 'dots'
+// Webfonts load on first use; fetch the moment's faces now so RM CLEAR! never lands in a fallback.
+for (const f of ['48px Nabla', '700 48px Gabarito', '900 48px Recursive']) document.fonts.load(f).catch(() => {})
+buildBg(); applySkin()
+requestAnimationFrame(loop)
+if (q.has('auto')) setTimeout(submit, Number(q.get('auto')) || 600)
+</script>
+</body>
+</html>

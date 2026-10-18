@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Weekly Rhythm</title>
+<link href="https://fonts.googleapis.com/css2?family=Anybody:ital,wdth,wght@0,50..150,400..900;1,50..150,400..900&family=Schibsted+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#0B0820;color:#F4F1FF;font:16px/1.5 "Schibsted Grotesk",sans-serif}
+.disp{font-family:"Anybody",sans-serif;font-style:italic;font-weight:900;font-stretch:135%}
+.top{position:absolute;left:0;right:0;top:0;height:92px;display:flex;align-items:center;gap:32px;padding:0 28px;border-bottom:1px solid #2A2150;
+ background:#120D2E}
+.logo{font-size:24px;letter-spacing:-.01em;margin-right:12px}
+.gauge{flex:1;max-width:560px}
+.gauge .lbl{display:flex;justify-content:space-between;font-weight:700;font-size:13px;color:#BFB4EA;margin-bottom:6px}
+.gauge .bar{position:relative;height:18px;border-radius:4px;background:#241A4D;overflow:hidden;transform:skewX(-14deg)}
+.gauge .bar i{position:absolute;inset:0 28% 0 0;background:linear-gradient(90deg,#3DF2FF,#8A5CFF 60%,#FF3EA5)}
+.gauge .bar b{position:absolute;top:0;bottom:0;width:2px;background:#0B0820}
+.combo{text-align:right;line-height:1}
+.combo .n{font-size:40px;color:#FFE14D}
+.combo .s{font:700 12px/1 "Schibsted Grotesk";color:#BFB4EA;letter-spacing:.08em}
+.score{font-size:26px;font-variant-numeric:tabular-nums}
+.rail{position:absolute;left:0;top:92px;bottom:0;width:236px;padding:20px 14px;border-right:1px solid #2A2150;background:#0E0A26}
+.rail a{display:block;padding:11px 14px;border-radius:10px;color:#BFB4EA;font-weight:600;margin-bottom:2px}
+.rail a.on{background:#241A4D;color:#fff}
+.who{position:absolute;bottom:24px;left:28px;font-size:14px;color:#BFB4EA}.who b{display:block;color:#fff}
+main{position:absolute;left:268px;right:32px;top:116px;bottom:0}
+.head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
+h1{font-size:48px;line-height:1;letter-spacing:-.01em}
+.head p{color:#BFB4EA}
+.result{display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:12px;background:#17113A;border:1px solid #2A2150}
+.result .j{font-size:22px;color:#3DF2FF}
+.days{display:grid;grid-template-columns:300px repeat(7,1fr) 150px;font:700 12px/1 "Schibsted Grotesk";color:#8F84C0;letter-spacing:.06em;padding:0 0 10px}
+.days span{text-align:center}
+.lanes{position:relative}
+.lane{display:grid;grid-template-columns:300px 1fr 150px;align-items:center;height:96px;padding:12px 0;border-top:1px solid #2A2150}
+.lane:last-child{border-bottom:1px solid #2A2150}
+.who2 .t{font-weight:700;font-size:18px}.who2 .m{color:#BFB4EA;font-size:14px}
+.track{position:relative;height:100%;background:linear-gradient(90deg,transparent calc(100% - 2px),#FFE14D 0) ,repeating-linear-gradient(90deg,#1A1440 0 calc(100%/7 - 1px),#2A2150 calc(100%/7 - 1px) calc(100%/7))}
+.note{position:absolute;top:50%;width:56px;height:30px;margin-top:-15px;border-radius:15px;transform:skewX(-14deg)}
+.now{position:absolute;top:-34px;bottom:-4px;left:calc(100%/7*3.85);width:2px;background:#fff}
+.now:before{content:"NOW";position:absolute;top:0;left:6px;font:700 11px/1 "Schibsted Grotesk";letter-spacing:.08em}
+.btn{justify-self:end;min-height:44px;padding:0 18px;border-radius:10px;border:0;font:700 15px/1 "Schibsted Grotesk"}
+.go{background:#FFE14D;color:#0B0820}.ghost{background:transparent;color:#fff;border:1px solid #4A3D8A}
+.late{position:absolute;right:-6px;top:50%;margin-top:-14px;transform:translateX(100%) skewX(-14deg);padding:4px 10px;background:#FF3EA5;color:#0B0820;font-size:16px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:28px}
+h2{font-size:22px;margin-bottom:12px}
+.card{padding:16px 18px;border-radius:12px;background:#120D2E;border:1px solid #2A2150;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card a{color:#3DF2FF;font-weight:700}
+</style></head><body>
+<header class="top">
+  <div class="logo disp">THE EXTERNAL BRAIN</div>
+  <div class="gauge"><div class="lbl"><span>LIFE · HP</span><span>72 / 100</span></div><div class="bar"><i></i><b style="left:25%"></b><b style="left:50%"></b><b style="left:75%"></b></div></div>
+  <div class="combo"><div class="n disp">3</div><div class="s">WEEK COMBO</div></div>
+  <div class="score disp">4,820</div>
+</header>
+<nav class="rail">
+  <a class="on">Home</a><a>Catalog</a><a>Inbox</a><a>Review assignments</a><a>Settings</a>
+  <div class="who"><b>Maya Chen</b>Research</div>
+</nav>
+<main>
+  <div class="head">
+    <div><h1 class="disp">WEEK OF OCT 13</h1><p>Cycle closes Sun 11:59 PM</p></div>
+    <div class="result"><span class="j disp">PERFECT</span><span>Last week's RM, on time · +5 HP</span></div>
+  </div>
+  <div class="days"><span></span><span>MON</span><span>TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span><span>SUN</span><span></span></div>
+  <div class="lanes">
+    <div class="lane">
+      <div class="who2"><div class="t">Spatial Sound Lab</div><div class="m">RM · draft saved 2h ago</div></div>
+      <div class="track"><span class="now"></span><span class="note" style="left:calc(100% - 64px);background:linear-gradient(90deg,#3DF2FF,#8A5CFF)"></span></div>
+      <button class="btn go">Submit RM</button>
+    </div>
+    <div class="lane">
+      <div class="who2"><div class="t">Finding our research question</div><div class="m">Review · Memory in Motion RM v1</div></div>
+      <div class="track" style="overflow:visible"><span class="note" style="left:calc(100%/7*2.2);background:#FF3EA5"></span><span class="late disp" style="right:auto;left:calc(100%/7*2.2 + 64px);transform:skewX(-14deg)">LATE · 1D</span></div>
+      <button class="btn ghost">Open review</button>
+    </div>
+  </div>
+  <div class="cols">
+    <section><h2 class="disp">NEEDS YOUR ATTENTION</h2>
+      <div class="card"><span>1 account waiting</span><a>Review accounts</a></div>
+      <div class="card"><span>1 report needs a reviewer</span><a>Assign reviewer</a></div>
+    </section>
+    <section><h2 class="disp">YOUR INITIATIVES</h2>
+      <div class="card"><span><b>Spatial Sound Lab</b> · 4 members · you lead</span><a>Open</a></div>
+    </section>
+  </div>
+</main>
+</body></html>

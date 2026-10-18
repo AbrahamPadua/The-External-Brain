@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Terminal Yellow</title>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#ECECEC;color:#0B0B0B;font:17px/1.45 "Fira Sans",sans-serif}
+.rail{position:absolute;left:0;top:0;bottom:0;width:248px;background:#0B0B0B;color:#fff;padding:22px 16px}
+.brand{font-weight:800;font-size:19px;line-height:1.15;margin:0 6px 26px}
+.brand span{display:block;font-weight:500;font-size:14px;color:#BDBDBD}
+.rail a{display:flex;align-items:center;gap:12px;padding:8px 8px;border-radius:6px;font-weight:500;font-size:16px;white-space:nowrap;margin-bottom:4px}
+.rail a i{width:34px;height:34px;border-radius:4px;background:#1F1F1F;display:grid;place-items:center}
+.rail a.on{background:#FFCC00;color:#0B0B0B}.rail a.on i{background:#0B0B0B}
+.rail svg{width:18px;height:18px}
+.who{position:absolute;left:24px;bottom:24px;font-size:15px;color:#BDBDBD}.who b{display:block;color:#fff}
+main{position:absolute;left:248px;right:0;top:0;bottom:0}
+.band{height:212px;background:#FFCC00;display:grid;grid-template-columns:120px 1fr auto;align-items:center;gap:28px;padding:24px 48px}
+.arrow{width:120px;height:120px;background:#0B0B0B;border-radius:6px;display:grid;place-items:center}
+.arrow svg{width:72px;height:72px}
+.band .k{font-size:20px;font-weight:500}
+.band .t{font-size:44px;font-weight:800;line-height:1.05;letter-spacing:-.01em}
+.band .d{font-size:20px;margin-top:4px}
+.big{text-align:right;line-height:.9}
+.big b{display:block;font-size:132px;font-weight:800;letter-spacing:-.04em}
+.big span{font-size:24px;font-weight:700}
+.strip{display:flex;gap:40px;align-items:center;padding:18px 48px;background:#0B0B0B;color:#fff}
+.strip b{font-size:28px;font-weight:800;margin-right:8px}
+.strip span{color:#BDBDBD}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:32px;padding:30px 48px}
+h2{font-size:24px;font-weight:800;margin-bottom:12px}
+.row{display:grid;grid-template-columns:44px 1fr auto 28px;align-items:center;gap:16px;background:#fff;border-radius:6px;padding:16px 18px;margin-bottom:10px}
+.row .ic{width:44px;height:44px;border-radius:4px;background:#0B0B0B;display:grid;place-items:center}
+.row .ic svg{width:22px;height:22px}
+.row .t{font-weight:700}.row .m{font-size:15px;color:#4A4A4A}
+.row .when{font-weight:800;font-size:20px;text-align:right}
+.alert .ic{background:#C8102E}.alert .when{color:#C8102E}
+.chev{width:22px;height:22px}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+<symbol id="c" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="doc" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+<symbol id="user" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+<symbol id="bang" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v9M12 19h.01"/></symbol>
+<symbol id="home" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+</defs></svg>
+<nav class="rail">
+  <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+  <a class="on"><i><svg><use href="#home"/></svg></i>Home</a>
+  <a><i><svg><use href="#doc"/></svg></i>Catalog</a>
+  <a><i><svg><use href="#doc"/></svg></i>Inbox</a>
+  <a><i><svg><use href="#doc"/></svg></i>Review assignments</a>
+  <a><i><svg><use href="#user"/></svg></i>Settings</a>
+  <div class="who"><b>Maya Chen</b>Research</div>
+</nav>
+<main>
+  <section class="band">
+    <div class="arrow"><svg style="color:#FFCC00"><use href="#r"/></svg></div>
+    <div><div class="k">Next: weekly update</div><div class="t">Spatial Sound Lab RM</div><div class="d">Draft saved 2h ago · closes Sun 11:59 PM</div></div>
+    <div class="big"><b>2</b><span>days left</span></div>
+  </section>
+  <div class="strip"><div><b>72</b><span>HP</span></div><div><b>3</b><span>weeks on time</span></div><div><b>4,820</b><span>season score</span></div></div>
+  <div class="cols">
+    <section>
+      <h2>Reviews</h2>
+      <div class="row alert"><span class="ic"><svg><use href="#bang"/></svg></span><div><div class="t">Finding our research question</div><div class="m">Memory in Motion · RM v1</div></div><span class="when">1 day late</span><svg class="chev"><use href="#c"/></svg></div>
+      <h2 style="margin-top:22px">Your initiatives</h2>
+      <div class="row"><span class="ic"><svg><use href="#doc"/></svg></span><div><div class="t">Spatial Sound Lab</div><div class="m">Neuroengineering · 4 members · you lead</div></div><span class="when" style="font-size:16px;font-weight:700">Active</span><svg class="chev"><use href="#c"/></svg></div>
+    </section>
+    <section>
+      <h2>Needs your attention</h2>
+      <div class="row"><span class="ic"><svg><use href="#user"/></svg></span><div><div class="t">1 account waiting</div><div class="m">Approve or decline</div></div><span class="when" style="font-size:16px">Accounts</span><svg class="chev"><use href="#c"/></svg></div>
+      <div class="row"><span class="ic"><svg><use href="#doc"/></svg></span><div><div class="t">1 report needs a reviewer</div><div class="m">Spatial Sound Lab RM v2</div></div><span class="when" style="font-size:16px">Assign</span><svg class="chev"><use href="#c"/></svg></div>
+    </section>
+  </div>
+</main>
+</body></html>

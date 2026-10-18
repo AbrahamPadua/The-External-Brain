@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike Reveal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Recursive:slnt,wght,CASL,CRSV,MONO@-15..0,300..1000,0..1,0..1,0..1&family=Nabla&family=Gabarito:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+.skin-type { --bg: #121114; --ink: #F2EFE6; --muted: #A9A49A; --rule: #2A282E; --dot: #3A3740; --dot-stage: #5E5966; --accent: #FF4A1C; color-scheme: dark; }
+.skin-lobe { --bg: #F5F1E4; --ink: #2C2E2A; --muted: #4A4D46; --rule: transparent; --dot: #C9C2AE; --dot-stage: #9D967F; --accent: #F5E211; color-scheme: light;
+  --frontal: #8ED462; --temporal: #2BA0FF; --parietal: #F5E211; --occipital: #FF705D; --cere: #EBC1FF; }
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg); color: var(--ink); overflow-x: hidden; -webkit-font-smoothing: antialiased; transition: background-color 300ms ease; }
+body.skin-type { font: 400 16px/1.5 Recursive, sans-serif; }
+body.skin-lobe { font: 600 16px/1.45 Gabarito, sans-serif; }
+::selection { background: var(--accent); color: #121114; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+button { font: inherit; cursor: pointer; }
+#bg { position: fixed; left: 0; top: 0; z-index: 0; pointer-events: none; }
+#lobe { position: absolute; left: 250px; top: 0; z-index: 1; display: none; pointer-events: none; transition: opacity 320ms ease; }
+.skin-lobe #lobe { display: block; }
+#fold { position: absolute; left: 232px; top: 0; z-index: 1; display: none; pointer-events: none; transition: opacity 320ms ease; }
+.skin-type.fold-header #fold { display: block; }
+.rule-fold { position: absolute; left: 0; bottom: -4px; width: 100%; height: 8px; overflow: visible; display: none; pointer-events: none; }
+.skin-type.fold-rules h2, .skin-type.fold-rules .row { position: relative; border-bottom-color: transparent; }
+.skin-type.fold-rules .rule-fold { display: block; }
+
+.app { position: relative; z-index: 2; display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; transition: opacity 320ms ease; }
+/* The submit moment: everything but the dot grid steps aside. */
+body.firing .app, body.firing #lobe, body.firing #fold { opacity: 0; pointer-events: none; }
+.rail { padding: 28px 18px; display: flex; flex-direction: column; gap: 4px; }
+.skin-type .rail { border-right: 1px solid var(--rule); background: var(--bg); }
+.brand { font-weight: 800; font-size: 20px; line-height: 1.1; margin: 0 8px 28px; }
+.brand span { display: block; font-weight: 500; font-size: 13px; color: var(--muted); margin-top: 6px; }
+.nav { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; color: var(--muted); font-weight: 600; text-decoration: none; }
+.nav i { display: none; width: 12px; height: 12px; border-radius: 50%; background: var(--c); }
+.skin-type .nav.on { background: var(--ink); color: var(--bg); }
+.skin-lobe .nav { color: var(--ink); border-radius: 24px; min-height: 46px; }
+.skin-lobe .nav i { display: inline-block; }
+.skin-lobe .nav.on { background: var(--frontal); }
+.skin-lobe .nav.on i { background: var(--ink); width: 30px; height: 30px; order: 2; margin-left: auto; }
+.who { margin-top: auto; padding: 0 12px; font-size: 14px; color: var(--muted); }
+
+main { padding: 40px 48px 120px; min-width: 0; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 30px; }
+.skin-lobe .top { min-height: 236px; }
+h1 { font-weight: 900; font-size: clamp(48px, 7vw, 92px); line-height: .92; letter-spacing: -.035em; }
+.skin-lobe h1 { font-weight: 600; letter-spacing: -.04em; line-height: .95; }
+.meta { margin-top: 14px; color: var(--muted); }
+.skin-type .meta, .skin-type .m, .skin-type .count { font-variation-settings: "MONO" 1; font-size: 13px; letter-spacing: .03em; text-transform: uppercase; }
+.hud { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.hp { text-align: right; line-height: .85; }
+.hp b { display: block; font-size: clamp(72px, 9vw, 124px); letter-spacing: -.04em; font-weight: 400; transition: font-variation-settings 900ms cubic-bezier(.16, 1, .3, 1); }
+.hp span { color: var(--muted); font-size: 13px; }
+.chips { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 15px; }
+.chip b { font-weight: 800; font-variant-numeric: tabular-nums; }
+.skin-lobe .hud { flex-direction: row; align-items: center; }
+.skin-lobe .hp b { font-size: 20px; font-weight: 700; display: inline; }
+.skin-lobe .hp, .skin-lobe .chip { background: #fff; border-radius: 22px; padding: 10px 18px; line-height: 1.2; }
+.skin-lobe .hp span { color: var(--ink); margin-left: 4px; font-size: 15px; }
+
+.grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 36px; }
+h2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 700; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+h2 .lbl { display: flex; align-items: center; gap: 10px; }
+h2 i { display: none; width: 14px; height: 14px; border-radius: 50%; background: var(--c); }
+.skin-lobe h2 { font-size: 22px; letter-spacing: -.02em; justify-content: flex-start; padding: 0; }
+.skin-lobe h2 i { display: inline-block; }
+.count { color: var(--muted); }
+.row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.skin-lobe .row { background: #FFFDF6; border-radius: 28px; padding: 18px 22px; margin-bottom: 14px; }
+.skin-lobe .row.late { background: #FFE3DD; }
+.t { font-size: 19px; font-weight: 700; }
+.m { color: var(--muted); font-size: 14px; }
+.when { font-size: 28px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+.skin-lobe .when { font-size: 22px; font-weight: 600; }
+.late .when { color: #FF6B6B; }
+.skin-lobe .late .when { color: #C2321D; }
+.skin-type .late .when { font-variation-settings: "slnt" -15; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; padding: 0 20px; border-radius: 10px; border: 1px solid transparent; font-weight: 700; font-size: 15px; white-space: nowrap; }
+.go { background: var(--accent); color: #121114; }
+.ghost { background: transparent; color: var(--ink); border-color: color-mix(in srgb, var(--ink) 35%, transparent); }
+.knob { display: none; width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: var(--accent); place-items: center; }
+.knob svg { width: 18px; height: 18px; }
+.skin-lobe .btn { border-radius: 24px; min-height: 48px; }
+.skin-lobe .go { padding: 0 6px 0 22px; }
+.skin-lobe .go .knob { display: grid; }
+.skin-lobe .ghost { border: 2px solid var(--ink); }
+.btn.done { background: transparent; color: var(--ink); border-color: color-mix(in srgb, var(--ink) 35%, transparent); cursor: default; padding: 0 20px; }
+.btn.done .knob { display: none; }
+.init { padding: 18px 20px; margin-bottom: 14px; }
+.skin-type .init { border: 1px solid var(--ink); }
+.skin-lobe .init { background: #FFFDF6; border-radius: 28px; }
+.skin-lobe .init.blue { background: #D6ECFF; }
+
+.reward { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.clear { position: absolute; left: 50%; opacity: 0; white-space: nowrap; transform: translateX(-50%) scale(1.8); font-size: clamp(48px, 9vw, 96px); line-height: 1; }
+.skin-type .clear { font-family: Nabla, sans-serif; }
+.skin-lobe .clear { font-weight: 700; letter-spacing: -.03em; }
+.clear.show { animation: slam 560ms cubic-bezier(.34, 1.56, .64, 1) forwards; }
+.clear.hide, .tally.hide { opacity: 0 !important; transition: opacity 400ms ease; animation: none; transform: translateX(-50%) scale(1); }
+@keyframes slam { 0% { opacity: 0; transform: translateX(-50%) scale(1.8); } 60% { opacity: 1; transform: translateX(-50%) scale(.94); } 100% { opacity: 1; transform: translateX(-50%) scale(1); } }
+.tally { position: absolute; left: 50%; transform: translateX(-50%); opacity: 0; font-size: 18px; font-weight: 700; white-space: nowrap; transition: opacity 300ms ease 180ms; font-variant-numeric: tabular-nums; }
+.skin-type .tally { font-variation-settings: "MONO" 1; }
+.skin-lobe .tally { background: #fff; border-radius: 22px; padding: 10px 18px; }
+.tally.show { opacity: 1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+.dock { position: fixed; z-index: 60; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px; padding: 10px 14px; border-radius: 16px; background: #1D1B22; color: #F2EFE6; font: 500 13px/1.3 system-ui, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); max-width: calc(100vw - 24px); transition: opacity 320ms ease; }
+body.firing .dock { opacity: 0; pointer-events: none; }
+.dock .seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 10px; background: #2C2933; }
+.dock button { border: 0; border-radius: 8px; padding: 8px 12px; min-height: 36px; background: transparent; color: #CFCAD8; font-weight: 600; }
+.dock button[aria-pressed="true"] { background: #F2EFE6; color: #121114; }
+.dock .replay { background: #FF4A1C; color: #121114; }
+.dock small { color: #A9A49A; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 16px; border-right: 0; }
+  .brand { margin: 0 auto 0 4px; }
+  .rail .nav:not(.on), .who { display: none; }
+  #lobe, #fold { left: 0; }
+  main { padding: 20px 16px 150px; }
+  .top { flex-direction: column; }
+  .hud { align-items: flex-start; }
+  .grid { grid-template-columns: 1fr; gap: 24px; }
+  .row { grid-template-columns: 1fr auto; }
+  .row .btn { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body class="skin-type">
+<canvas id="bg" aria-hidden="true"></canvas>
+<svg id="lobe" aria-hidden="true"><path id="lobePath" fill="#8ED462"/></svg>
+<svg id="fold" aria-hidden="true"><path id="foldPath" fill="#1C1A20"/><path id="foldEdge" fill="none" stroke="#3A3740" stroke-width="1"/></svg>
+<div class="app">
+  <nav class="rail" aria-label="Primary">
+    <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+    <a class="nav on" href="#" style="--c: var(--frontal)"><i></i>Home</a>
+    <a class="nav" href="#" style="--c: var(--temporal)"><i></i>Catalog</a>
+    <a class="nav" href="#" style="--c: var(--parietal)"><i></i>Inbox</a>
+    <a class="nav" href="#" style="--c: var(--occipital)"><i></i>Review assignments</a>
+    <a class="nav" href="#" style="--c: var(--cere)"><i></i>Settings</a>
+    <div class="who">Maya Chen · Research</div>
+  </nav>
+  <main>
+    <div class="top">
+      <div><h1>Week of<br>Oct 13</h1><p class="meta">Cycle closes Sun 11:59 PM</p></div>
+      <div class="hud">
+        <div class="hp"><b id="hpNum">72</b><span>HP</span></div>
+        <div class="chips"><span class="chip"><b id="streak">3</b> week streak</span><span class="chip"><b id="pts">4,820</b> pts</span></div>
+      </div>
+    </div>
+    <div class="grid">
+      <section>
+        <h2><span class="lbl"><i style="--c: var(--frontal)"></i>Weekly updates</span><span class="count">1 due</span></h2>
+        <div class="row">
+          <div><div class="t">Spatial Sound Lab</div><div class="m" id="rmMeta">RM · draft saved 2h ago</div></div>
+          <div class="when" id="rmWhen">2d 6h</div>
+          <button type="button" class="btn go" id="submit"><span id="submitText">Submit RM</span><i class="knob"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></i></button>
+        </div>
+        <h2 style="margin-top: 28px"><span class="lbl"><i style="--c: var(--occipital)"></i>Reviews</span><span class="count">1 overdue</span></h2>
+        <div class="row late">
+          <div><div class="t">Finding our research question</div><div class="m">Memory in Motion · RM v1</div></div>
+          <div class="when">1d late</div>
+          <button type="button" class="btn ghost">Open review</button>
+        </div>
+      </section>
+      <section>
+        <h2><span class="lbl"><i style="--c: var(--temporal)"></i>Your initiatives</span><span class="count">2</span></h2>
+        <div class="init blue"><div class="t">Spatial Sound Lab</div><div class="m">Neuroengineering · 4 members · you lead</div></div>
+        <div class="init"><div class="t">Memory in Motion</div><div class="m">Cognitive science · 5 members</div></div>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="reward">
+  <div class="clear" id="clear" aria-hidden="true"></div>
+  <div class="tally" id="tally" aria-hidden="true">+5 HP · +<span id="tallyPts">0</span> pts</div>
+  <p class="sr" id="srMsg" role="status" aria-live="polite"></p>
+</div>
+<div class="dock" role="group" aria-label="Prototype controls">
+  <span class="seg" aria-label="Theme"><button type="button" data-skin="type" aria-pressed="true">Dark · Living Type</button><button type="button" data-skin="lobe" aria-pressed="false">Light · Lobe Map</button></span>
+  <span class="seg" aria-label="Fold"><button type="button" data-fold="off" aria-pressed="false">No fold</button><button type="button" data-fold="header" aria-pressed="true">Header fold</button><button type="button" data-fold="rules" aria-pressed="false">Folded rules</button></span>
+  <button type="button" class="replay" id="replay">Replay submit</button>
+  <small>Prototype · fictional data</small>
+</div>
+<script>
+const $ = id => document.getElementById(id)
+const rand = (a, b) => a + Math.random() * (b - a)
+const S = { skin: 'type', fold: 'header' }
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 } }
+// The Lobe Map coastline, generalised: one rounded fold summed at four shrinking scales, like cortical gyri.
+function foldPts(x0, y0, x1, y1, amp, seed, cycles = 3, n = 220) {
+  const rng = mulberry32(seed), oct = [0, 1, 2, 3].map(k => ({ a: amp / Math.pow(2.6, k), f: cycles * Math.pow(2, k), p: rng() * 6.283 }))
+  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len, pts = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, off = oct.reduce((s, o) => s + o.a * Math.sin(o.f * t * 6.283 + o.p), 0)
+    pts.push([x0 + dx * t + nx * off, y0 + dy * t + ny * off])
+  }
+  return pts
+}
+const toD = pts => pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('')
+function buildFold() {
+  const narrow = innerWidth <= 860, left = narrow ? 0 : 232, w = innerWidth - left
+  const top = document.querySelector('.top').getBoundingClientRect(), h = top.bottom + window.scrollY + 34
+  // Fold size follows the width, so a phone gets the same gentle folds as a laptop, not squeezed spikes.
+  const edge = foldPts(w, h * .86, 0, h * .97, Math.min(h * .05, w * .02), 11, Math.max(1, w / 400))
+  const svg = $('fold')
+  svg.setAttribute('width', w); svg.setAttribute('height', h + 20); svg.setAttribute('viewBox', `0 0 ${w} ${h + 20}`)
+  $('foldPath').setAttribute('d', `M0 0H${w}V${edge[0][1].toFixed(1)}` + toD(edge).replace(/^M/, 'L') + 'Z')
+  $('foldEdge').setAttribute('d', toD(edge))
+}
+function buildRules() {
+  document.querySelectorAll('.rule-fold').forEach(el => el.remove())
+  document.querySelectorAll('main h2, main .row').forEach((el, i) => {
+    const w = el.getBoundingClientRect().width
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'rule-fold'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('viewBox', `0 0 ${w} 8`); svg.setAttribute('preserveAspectRatio', 'none')
+    svg.innerHTML = `<path d="${toD(foldPts(0, 4, w, 4, 2.6, 30 + i))}" fill="none" stroke="#3A3740" stroke-width="1"/>`
+    el.appendChild(svg)
+  })
+}
+const LOBE = {
+  type: { frontal: '#8ED462', parietal: '#F5E211', temporal: '#2BA0FF', occipital: '#FF705D', cere: '#EBC1FF', stem: '#F2EFE6' },
+  lobe: { frontal: '#4FA82B', parietal: '#C99700', temporal: '#2B8FE6', occipital: '#E8553F', cere: '#A86AE0', stem: '#2C2E2A' },
+}
+const LOBE_TEXT = ['#3D8A1E', '#1F7ACC', '#8A6A00', '#C93A25', '#8E4FD0']
+const cssVar = name => getComputedStyle(document.body).getPropertyValue(name).trim()
+
+// Brain in a unit box, lateral view facing left: outline, then the fissures left dark so it reads as a brain.
+const BRAIN = [[.06, .52], [.04, .36], [.12, .17], [.30, .05], [.50, .02], [.70, .06], [.86, .16], [.96, .32], [.97, .48], [.91, .58], [.94, .67], [.86, .79], [.72, .81], [.64, .73], [.60, .77], [.59, .94], [.52, .94], [.51, .75], [.40, .71], [.28, .69], [.18, .63]]
+const SULCI = [
+  [[.50, .03], [.45, .22], [.41, .46]],             // central sulcus
+  [[.24, .66], [.40, .58], [.56, .51], [.70, .48]], // lateral fissure
+  [[.80, .12], [.83, .32]],                         // parieto-occipital
+  [[.62, .71], [.78, .66], [.95, .64]],             // tentorium above the cerebellum
+]
+function catmull(pts, per) {
+  const out = [], n = pts.length
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n]
+    for (let s = 0; s < per; s++) {
+      const t = s / per, t2 = t * t, t3 = t2 * t
+      out.push([0, 1].map(k => .5 * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)))
+    }
+  }
+  return out
+}
+function inside(x, y, poly) {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j]
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c
+  }
+  return c
+}
+function distToLine(x, y, line) {
+  let best = Infinity
+  for (let i = 1; i < line.length; i++) {
+    const [ax, ay] = line[i - 1], [bx, by] = line[i], dx = bx - ax, dy = by - ay
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy)))
+    best = Math.min(best, Math.hypot(x - ax - t * dx, y - ay - t * dy))
+  }
+  return best
+}
+function lobeOf(u, v) {
+  if (v > .74 && u > .5 && u < .62) return 'stem'
+  if (u > .62 && v > .67) return 'cere'
+  if (u > .81) return 'occipital'
+  if (u > .24 && v > .66 - (u - .24) * .4) return 'temporal'
+  if (u < .5 - v * .2) return 'frontal'
+  return 'parietal'
+}
+
+// ---- The grid: an evenly spaced, centred lattice of neurons.
+const bg = $('bg'), ctx = bg.getContext('2d'), stat = document.createElement('canvas'), sctx = stat.getContext('2d')
+const M = 24
+let W = 0, H = 0, DPR = 1, gap = 24, cols = 0, rows = 0, dots = [], brainDots = [], brain = null, links = [], nextLink = 0
+const par = { x: 0, y: 0, tx: 0, ty: 0 }
+const dotAt = (r, c) => r >= 0 && r < rows && c >= 0 && c < cols ? dots[r * cols + c] : null
+function buildGrid() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(2, devicePixelRatio || 1)
+  const w = W + 2 * M, h = H + 2 * M
+  for (const c of [bg, stat]) { c.width = Math.round(w * DPR); c.height = Math.round(h * DPR) }
+  bg.style.width = w + 'px'; bg.style.height = h + 'px'
+  gap = Math.max(16, Math.min(24, Math.round(W / 60)))
+  cols = Math.floor(w / gap); rows = Math.floor(h / gap)
+  const x0 = (w - (cols - 1) * gap) / 2, y0 = (h - (rows - 1) * gap) / 2
+  dots = []
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) dots.push({ x: x0 + c * gap, y: y0 + r * gap, r, c, spike: 0, lit: 0, latch: false, brain: false, lobe: null })
+  const bw = Math.min(W * .82, 720, (H - 230) / .8), bh = bw * .8
+  brain = { bw, bh, ox: M + (W - bw) / 2, oy: M + Math.max(24, (H - bh) / 2 - 56) }
+  const outline = catmull(BRAIN, 18).map(([u, v]) => [brain.ox + u * bw, brain.oy + v * bh])
+  const sulci = SULCI.map(l => l.map(([u, v]) => [brain.ox + u * bw, brain.oy + v * bh]))
+  for (const d of dots) {
+    if (!inside(d.x, d.y, outline) || sulci.some(l => distToLine(d.x, d.y, l) < gap * .5)) continue
+    d.brain = true; d.lobe = lobeOf((d.x - brain.ox) / bw, (d.y - brain.oy) / bh)
+  }
+  brainDots = dots.filter(d => d.brain)
+  links = []
+  paintStatic()
+}
+function paintStatic() {
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0); sctx.clearRect(0, 0, W + 2 * M, H + 2 * M)
+  sctx.fillStyle = cssVar('--dot')
+  for (const d of dots) { sctx.beginPath(); sctx.arc(d.x, d.y, 1.4, 0, 6.283); sctx.fill() }
+}
+// Idle life: now and then two neighbouring neurons connect, then let go.
+function spawnLink(now) {
+  const a = dots[Math.floor(Math.random() * dots.length)]
+  const [dr, dc] = [[0, 1], [1, 0], [1, 1], [1, -1]][Math.floor(Math.random() * 4)]
+  const b = dotAt(a.r + dr, a.c + dc)
+  if (b) links.push({ a, b, start: now })
+}
+function drawLink(l, now) {
+  const t = now - l.start, grow = Math.min(1, t / 450), fade = t < 1300 ? 1 : Math.max(0, 1 - (t - 1300) / 1200)
+  const color = S.skin === 'type' ? '#FF4A1C' : '#2C2E2A'
+  ctx.globalAlpha = fade * .85; ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.4
+  ctx.beginPath(); ctx.moveTo(l.a.x, l.a.y); ctx.lineTo(l.a.x + (l.b.x - l.a.x) * grow, l.a.y + (l.b.y - l.a.y) * grow); ctx.stroke()
+  for (const d of [l.a, l.b]) { ctx.beginPath(); ctx.arc(d.x, d.y, 2.2, 0, 6.283); ctx.fill() }
+  ctx.globalAlpha = 1
+  return t < 2500
+}
+
+// ---- The submit moment: spikes accelerate like a rising spike train until the brain lights up.
+const FADE = 320, RAMP = 2400
+let fire = { active: false }
+function startFire() {
+  document.body.classList.add('firing')
+  for (const d of dots) { d.spike = 0; d.lit = 0; d.latch = false; d.burstAt = 0 }
+  fire = { active: true, start: performance.now(), carry: 0, recent: [], burst: false, cleared: false, restoreAt: 0 }
+  const top = brain.oy - M + brain.bh + 12
+  $('clear').style.top = top + 'px'
+  $('tally').style.top = (top + Math.min(96, Math.max(48, W * .09)) + 16) + 'px'
+}
+function spikeOne(t) {
+  let d = null
+  if (fire.recent.length && Math.random() < .35) {
+    const s = fire.recent[Math.floor(Math.random() * fire.recent.length)], [dr, dc] = [[0, 1], [1, 0], [0, -1], [-1, 0]][Math.floor(Math.random() * 4)]
+    d = dotAt(s.r + dr, s.c + dc)
+  }
+  if (!d) d = Math.random() < .25 + .75 * t / RAMP ? brainDots[Math.floor(Math.random() * brainDots.length)] : dots[Math.floor(Math.random() * dots.length)]
+  d.spike = 1
+  if (d.brain) d.latch = true
+  fire.recent.push(d)
+  if (fire.recent.length > 14) fire.recent.shift()
+}
+function stepFire(now, dt) {
+  const t = now - fire.start - FADE
+  if (t > 0 && t < RAMP) {
+    fire.carry += 4 * Math.exp(t / 480) * dt / 1000
+    while (fire.carry >= 1) { fire.carry--; spikeOne(t) }
+  }
+  if (t >= RAMP && !fire.burst) { fire.burst = true; for (const d of brainDots) d.burstAt = now + Math.random() * 180 }
+  for (const d of brainDots) if (d.burstAt && now >= d.burstAt) { d.burstAt = 0; d.spike = 1; d.latch = true }
+  const k = Math.exp(-dt / 150)
+  for (const d of dots) { d.spike *= k; if (d.latch && !fire.restoreAt) d.lit = Math.min(1, d.lit + dt / 240) }
+  if (t > RAMP + 300 && !fire.cleared) { fire.cleared = true; reward() }
+  if (t > RAMP + 2400 && !fire.restoreAt) {
+    fire.restoreAt = now
+    document.body.classList.remove('firing')
+    $('clear').classList.add('hide'); $('tally').classList.add('hide')
+  }
+  if (fire.restoreAt) {
+    const p = (now - fire.restoreAt) / 600
+    for (const d of brainDots) d.lit = Math.max(0, 1 - p)
+    if (p >= 1) { fire.active = false; for (const d of dots) { d.latch = false; d.lit = 0 } ; $('clear').className = 'clear'; $('tally').className = 'tally' }
+  }
+}
+function drawFire(now) {
+  const t = now - fire.start, stage = fire.restoreAt ? Math.max(0, 1 - (now - fire.restoreAt) / 600) : Math.min(1, t / FADE)
+  const pal = LOBE[S.skin], spikeCore = S.skin === 'type' ? '#FFFFFF' : '#2C2E2A', ring = S.skin === 'type' ? '#FF4A1C' : '#2C2E2A'
+  ctx.globalAlpha = stage * .7; ctx.fillStyle = cssVar('--dot-stage')
+  for (const d of dots) { ctx.beginPath(); ctx.arc(d.x, d.y, 1.4, 0, 6.283); ctx.fill() }
+  for (const d of dots) {
+    if (d.lit > .01) {
+      ctx.globalAlpha = d.lit; ctx.fillStyle = pal[d.lobe]
+      ctx.beginPath(); ctx.arc(d.x, d.y, 1.6 + gap * .1 * d.lit, 0, 6.283); ctx.fill()
+    }
+    if (d.spike > .03) {
+      ctx.globalAlpha = d.spike; ctx.fillStyle = d.brain ? pal[d.lobe] : spikeCore
+      ctx.beginPath(); ctx.arc(d.x, d.y, 1.6 + d.spike * 3, 0, 6.283); ctx.fill()
+      ctx.globalAlpha = d.spike * .45; ctx.strokeStyle = ring; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.arc(d.x, d.y, 3 + (1 - d.spike) * 9, 0, 6.283); ctx.stroke()
+    }
+  }
+  ctx.globalAlpha = 1
+}
+
+// ---- App state around the moment.
+const state = { hp: 72, pts: 4820, streak: 3, submitted: false }
+function setHp(hp) { $('hpNum').textContent = hp; $('hpNum').style.fontVariationSettings = S.skin === 'type' ? `"wght" ${hp * 10}` : '' }
+function countTo(el, from, to, ms, fmt) {
+  const t0 = performance.now()
+  const tick = () => { const p = Math.min(1, Math.max(0, (performance.now() - t0) / ms)); el.textContent = fmt(Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)))); if (p < 1) requestAnimationFrame(tick) }
+  requestAnimationFrame(tick)
+}
+function reward() {
+  const text = 'RM CLEAR!'
+  $('clear').innerHTML = S.skin === 'type' ? text : [...text].map((c, i) => c === ' ' ? ' ' : `<span style="color:${LOBE_TEXT[i % LOBE_TEXT.length]}">${c}</span>`).join('')
+  $('clear').classList.add('show'); $('tally').classList.add('show')
+  countTo($('tallyPts'), 0, 820, 900, n => n)
+  $('srMsg').textContent = 'RM submitted on time. Plus 5 HP, plus 820 points.'
+  state.hp = 77; state.streak = 4; setHp(state.hp); $('streak').textContent = state.streak
+  countTo($('pts'), state.pts, state.pts + 820, 1200, n => n.toLocaleString('en-US')); state.pts += 820
+}
+function submit() {
+  if (state.submitted || fire.active) return
+  state.submitted = true
+  $('submit').classList.add('done'); $('submit').setAttribute('aria-disabled', 'true'); $('submitText').textContent = 'Submitted'
+  $('rmMeta').textContent = 'Submitted Sat 4:12 PM, on time · locked'; $('rmWhen').textContent = ''
+  startFire()
+}
+function reset() {
+  Object.assign(state, { hp: 72, pts: 4820, streak: 3, submitted: false })
+  setHp(72); $('pts').textContent = '4,820'; $('streak').textContent = '3'
+  $('submit').classList.remove('done'); $('submit').removeAttribute('aria-disabled'); $('submitText').textContent = 'Submit RM'
+  $('rmMeta').textContent = 'RM · draft saved 2h ago'; $('rmWhen').textContent = '2d 6h'
+}
+function buildLobe() {
+  const svg = $('lobe'), narrow = innerWidth <= 860, w = innerWidth - (narrow ? 0 : 250), h = narrow ? 300 : 330
+  svg.setAttribute('width', w); svg.setAttribute('height', h); svg.setAttribute('viewBox', `0 0 ${w} ${h}`)
+  $('lobePath').setAttribute('d', `M0 0H${w}V${h * .46}C${w * .72} ${h * .98} ${w * .3} ${h * .7} 0 ${h * .94}Z`)
+}
+
+let last = performance.now()
+function loop() {
+  const now = performance.now(), dt = Math.min(50, Math.max(0, now - last))
+  last = now
+  if (!fire.active && now > nextLink) { spawnLink(now); nextLink = now + rand(2200, 3800) }
+  par.x += (par.tx - par.x) * .06; par.y += (par.ty - par.y) * .06
+  bg.style.transform = `translate3d(${(par.x - M).toFixed(2)}px, ${(par.y - M).toFixed(2)}px, 0)`
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, bg.width, bg.height); ctx.drawImage(stat, 0, 0)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  links = links.filter(l => drawLink(l, now))
+  if (fire.active) { stepFire(now, dt); drawFire(now) }
+  requestAnimationFrame(loop)
+}
+function applySkin() {
+  document.body.className = `skin-${S.skin} fold-${S.fold}` + (fire.active ? ' firing' : '')
+  document.querySelectorAll('[data-skin]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.skin === S.skin)))
+  document.querySelectorAll('[data-fold]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.fold === S.fold)))
+  setHp(state.hp); paintStatic(); buildLobe(); buildFold(); buildRules(); links = []
+}
+
+document.querySelectorAll('[data-skin]').forEach(b => b.addEventListener('click', () => { S.skin = b.dataset.skin; applySkin() }))
+document.querySelectorAll('[data-fold]').forEach(b => b.addEventListener('click', () => { S.fold = b.dataset.fold; applySkin() }))
+$('submit').addEventListener('click', submit)
+$('replay').addEventListener('click', () => { if (fire.active) return; reset(); setTimeout(submit, 200) })
+addEventListener('pointermove', e => { par.tx = (e.clientX / W - .5) * -14; par.ty = (e.clientY / H - .5) * -14 })
+let resizeTimer
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!fire.active) { buildGrid(); buildLobe(); buildFold(); buildRules() } }, 150) })
+
+const q = new URLSearchParams(location.search)
+if (q.get('skin') === 'lobe') S.skin = 'lobe'
+if (['off', 'header', 'rules'].includes(q.get('fold'))) S.fold = q.get('fold')
+// Webfonts load on first use; fetch the moment's faces now so RM CLEAR! never lands in a fallback.
+for (const f of ['48px Nabla', '700 48px Gabarito', '900 48px Recursive']) document.fonts.load(f).catch(() => {})
+buildGrid(); applySkin()
+document.fonts.ready.then(() => { buildFold(); buildRules() })
+requestAnimationFrame(loop)
+if (q.has('auto')) setTimeout(submit, Number(q.get('auto')) || 600)
+</script>
+</body>
+</html>

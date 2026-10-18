@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Category standard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#0B0F19;color:#F1F5F9;font:15px/1.5 Inter,sans-serif}
+.top{position:absolute;left:0;right:0;top:0;height:64px;border-bottom:1px solid #1E2638;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#0F131E}
+.top b{font-size:16px}.top span{color:#8B9BB4}
+.user{display:flex;gap:10px;align-items:center}
+.top .av{width:30px;height:30px;border-radius:50%;background:#1259F3;color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
+.side{position:absolute;left:0;top:64px;bottom:0;width:232px;border-right:1px solid #1E2638;padding:16px 12px;background:#0F131E}
+.side a{display:block;padding:8px 12px;border-radius:8px;color:#8B9BB4;font-weight:500;margin-bottom:2px}
+.side a.on{background:#161B28;color:#F1F5F9}
+main{position:absolute;left:264px;right:40px;top:96px}
+h1{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.sub{color:#8B9BB4;margin:4px 0 24px}
+.stats{display:flex;gap:24px;margin-bottom:24px;color:#8B9BB4}
+.stats b{color:#F1F5F9;font-weight:600;margin-right:6px}
+.grid{display:grid;grid-template-columns:1.4fr 1fr;gap:24px}
+h2{font-size:14px;font-weight:600;color:#8B9BB4;margin-bottom:10px}
+.panel{border:1px solid #1E2638;border-radius:10px;background:#0F131E;margin-bottom:24px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-top:1px solid #1E2638}
+.row:first-child{border-top:0}
+.t{font-weight:600}.m{color:#8B9BB4;font-size:13px}
+.badge{font-size:12px;font-weight:500;padding:2px 8px;border-radius:6px;background:#1A2233;color:#8B9BB4;margin-left:8px}
+.badge.r{background:rgba(244,63,94,.12);color:#FB7185}
+.btn{padding:8px 14px;border-radius:8px;font-weight:600;font-size:14px;border:1px solid #1259F3;background:#1259F3;color:#fff}
+.btn.g{background:transparent;border-color:#273149;color:#F1F5F9}
+a.l{color:#60A5FA;font-weight:500}
+</style></head><body>
+<header class="top"><div><b>The External Brain</b> <span>/ Neuro Network</span></div><div class="user"><span>Maya Chen · Research</span><span class="av">MC</span></div></header>
+<nav class="side"><a class="on">Home</a><a>Catalog</a><a>Inbox</a><a>Review assignments</a><a>Settings</a></nav>
+<main>
+  <h1>Home</h1><p class="sub">Week of Oct 13 · cycle closes Sun 11:59 PM</p>
+  <div class="stats"><span><b>72</b>HP</span><span><b>3</b>weeks on time</span><span><b>4,820</b>season score</span></div>
+  <div class="grid">
+    <section>
+      <h2>Weekly updates</h2>
+      <div class="panel"><div class="row"><div><div class="t">Spatial Sound Lab<span class="badge">Draft</span></div><div class="m">RM · saved 2h ago · due in 2 days</div></div><button class="btn">Submit RM</button></div></div>
+      <h2>Reviews</h2>
+      <div class="panel"><div class="row"><div><div class="t">Finding our research question<span class="badge r">Overdue</span></div><div class="m">Memory in Motion · RM v1 · 1 day late</div></div><button class="btn g">Open review</button></div></div>
+    </section>
+    <section>
+      <h2>Needs your attention</h2>
+      <div class="panel"><div class="row"><span>1 account waiting</span><a class="l">Review accounts</a></div><div class="row"><span>1 report needs a reviewer</span><a class="l">Assign reviewer</a></div></div>
+      <h2>Your initiatives</h2>
+      <div class="panel"><div class="row"><div><div class="t">Spatial Sound Lab</div><div class="m">Neuroengineering · 4 members</div></div><span class="badge">Active</span></div></div>
+    </section>
+  </div>
+</main>
+</body></html>

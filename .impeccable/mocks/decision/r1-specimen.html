@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Living Type</title>
+<link href="https://fonts.googleapis.com/css2?family=Recursive:slnt,wght,CASL,CRSV,MONO@-15..0,300..1000,0..1,0..1,0..1&family=Nabla&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#121114;color:#F2EFE6;font:16px/1.5 Recursive,sans-serif;font-variation-settings:"CASL" 0,"MONO" 0}
+.mono{font-variation-settings:"MONO" 1,"CASL" 0;font-size:13px;letter-spacing:.02em;color:#A9A49A}
+.field{position:absolute;inset:0;width:1440px;height:900px}
+.rail{position:absolute;left:0;top:0;bottom:0;width:232px;padding:28px 20px;border-right:1px solid #2A282E;background:#121114}
+.brand{font-size:20px;font-weight:800;line-height:1.1;margin-bottom:32px}
+.brand span{display:block;font-weight:400;font-size:13px;color:#A9A49A;margin-top:4px}
+.rail a{display:block;padding:9px 12px;border-radius:8px;color:#C9C4B8;font-weight:500;margin-bottom:2px}
+.rail a.on{background:#F2EFE6;color:#121114;font-weight:700}
+.who{position:absolute;left:32px;bottom:28px;font-size:14px;color:#A9A49A}.who b{display:block;color:#F2EFE6}
+main{position:absolute;left:280px;right:48px;top:36px;bottom:0}
+.top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:28px}
+h1{font-size:84px;line-height:.92;font-weight:900;letter-spacing:-.035em}
+.hp{text-align:right;line-height:.85}
+.hp b{display:block;font-size:120px;font-variation-settings:"wght" 720;letter-spacing:-.04em}
+.hp .mono{display:block;margin-top:10px}
+.stats{display:flex;gap:28px;margin-top:6px;justify-content:flex-end}
+.stats span{font-variation-settings:"MONO" 1;font-size:15px}
+.grid{display:grid;grid-template-columns:1.5fr 1fr;gap:40px}
+h2{font-size:15px;font-weight:700;letter-spacing:.01em;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #2A282E;display:flex;justify-content:space-between}
+.row{display:grid;grid-template-columns:1fr auto auto;gap:20px;align-items:center;padding:16px 0;border-bottom:1px solid #2A282E}
+.t{font-size:20px;font-weight:700}
+.left{font-size:30px;font-weight:800;text-align:right;min-width:130px}
+.btn{min-height:44px;padding:0 18px;border-radius:8px;border:0;font:700 15px Recursive}
+.go{background:#FF4A1C;color:#121114}.ghost{background:transparent;color:#F2EFE6;border:1px solid #4A4650}
+.stamp{display:inline-block;margin-left:10px;padding:2px 8px;border:1.5px solid #8BD17C;color:#8BD17C;border-radius:4px;font-variation-settings:"MONO" 1;font-size:12px;transform:rotate(-3deg)}
+.att{display:flex;justify-content:space-between;padding:14px 0;border-bottom:1px solid #2A282E}
+.att a{color:#FF4A1C;font-weight:700}
+.plate{margin-top:26px;border:1px solid #F2EFE6;padding:14px;display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center}
+.plate .clear{font-family:Nabla,sans-serif;font-size:40px;line-height:1}
+.plate svg{width:120px;height:96px}
+</style></head><body>
+<svg class="field" viewBox="0 0 1440 900" aria-hidden="true">
+  <defs><pattern id="d" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="14" cy="14" r="1.3" fill="#3A3740"/></pattern></defs>
+  <rect width="1440" height="900" fill="url(#d)"/>
+  <g stroke="#FF4A1C" stroke-width="1.4" fill="none" opacity=".8"><path d="M854 126 L882 154 L910 154 M1302 818 L1330 790 L1358 818"/></g>
+  <g fill="#FF4A1C"><circle cx="854" cy="126" r="2.4"/><circle cx="910" cy="154" r="2.4"/><circle cx="1302" cy="818" r="2.4"/><circle cx="1358" cy="818" r="2.4"/></g>
+</svg>
+<nav class="rail">
+  <div class="brand">The External Brain<span>Neuro Network UCSD</span></div>
+  <a class="on">Home</a><a>Catalog</a><a>Inbox</a><a>Review assignments</a><a>Settings</a>
+  <div class="who"><b>Maya Chen</b>Research</div>
+</nav>
+<main>
+  <div class="top">
+    <div><h1>Week of<br>Oct 13</h1><p class="mono" style="margin-top:14px">CYCLE CLOSES SUN 11:59 PM</p></div>
+    <div class="hp"><b>72</b><span class="mono">HP · WEIGHT SET BY YOUR HP</span>
+      <div class="stats"><span>3-week streak</span><span>4,820 pts</span></div></div>
+  </div>
+  <div class="grid">
+    <section>
+      <h2>Weekly updates <span class="mono">1 due</span></h2>
+      <div class="row"><div><div class="t">Spatial Sound Lab</div><div class="mono">RM · DRAFT SAVED 2H AGO</div></div>
+        <div class="left" style="font-variation-settings:'CASL' .6">2d 6h</div><button class="btn go">Submit RM</button></div>
+      <h2 style="margin-top:26px">Reviews <span class="mono">1 overdue</span></h2>
+      <div class="row"><div><div class="t">Finding our research question</div><div class="mono">MEMORY IN MOTION · RM V1</div></div>
+        <div class="left" style="font-variation-settings:'slnt' -15;color:#FF6B6B">1d late</div><button class="btn ghost">Open review</button></div>
+      <div class="row"><div><div class="t">Spatial Sound Lab RM, week of Oct 6</div><div class="mono">LOCKED · IN REVIEW<span class="stamp">SUBMITTED FRI 4:12 PM</span></div></div><div></div><button class="btn ghost">View</button></div>
+    </section>
+    <section>
+      <h2>Needs your attention <span class="mono">2</span></h2>
+      <div class="att"><span>1 account waiting</span><a>Review accounts</a></div>
+      <div class="att"><span>1 report needs a reviewer</span><a>Assign reviewer</a></div>
+      <div class="plate">
+        <svg viewBox="0 0 120 96" fill="none"><path d="M24 58 C12 50 14 28 32 24 C38 10 60 8 70 18 C86 12 104 24 100 42 C112 52 102 72 86 70 C80 82 58 84 50 74 C36 80 22 72 24 58Z" stroke="#F2EFE6" stroke-dasharray="2 5" stroke-linecap="round"/><g fill="#FF4A1C"><circle cx="32" cy="24" r="2.5"/><circle cx="70" cy="18" r="2.5"/><circle cx="100" cy="42" r="2.5"/><circle cx="86" cy="70" r="2.5"/><circle cx="50" cy="74" r="2.5"/><circle cx="24" cy="58" r="2.5"/></g></svg>
+        <div><div class="clear">RM CLEAR!</div><div class="mono" style="margin-top:8px">LAST WEEK · +5 HP · +820 PTS</div></div>
+      </div>
+    </section>
+  </div>
+</main>
+</body></html>

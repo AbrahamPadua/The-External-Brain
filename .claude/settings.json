@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(npm run build)",
+      "Bash(npx vitest run *)",
+      "Bash(node scripts/check-*)",
+      "Bash(node app/scripts/check-*)",
+      "Bash(git status *)",
+      "Bash(git diff *)"
+    ],
+    "ask": [
+      "Edit(/supabase/**)",
+      "Bash(git push *)"
+    ],
+    "deny": [
+      "Read(/app/.env)",
+      "Read(/app/.env.local)",
+      "Read(/.env)",
+      "Read(/import-private/**)",
+      "Read(/smoke-private/**)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.mjs\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

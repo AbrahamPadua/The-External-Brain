@@ -9,5 +9,8 @@ smoke-private/
 *.docx
 UI/
 
+CLAUDE.local.md
+.claude/settings.local.json
+
 ucsd-bylaws-ultra-2026.docx
 supabase/deploy-bundle.txt
